@@ -1,4 +1,5 @@
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -132,3 +133,52 @@ def test_fingerprint_only_does_not_rescan(cfg, make_track, monkeypatch):
     assert db.list_all(conn) == []
     conn.close()
     assert out["fingerprinted"] == 0
+
+
+def test_start_job_releases_lock_when_thread_fails(cfg, monkeypatch):
+    class ExplodingThread:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def start(self):
+            raise RuntimeError("cannot start new thread")
+
+    monkeypatch.setattr(worker.threading, "Thread", ExplodingThread)
+    with pytest.raises(RuntimeError, match="cannot start new thread"):
+        worker.start_job(cfg)
+    # the lock must not leak: worker still idle, next job can acquire
+    assert not worker.is_running()
+    assert worker._lock.acquire(blocking=False)
+    worker._lock.release()
+
+
+def test_crashed_job_reports_error_status(cfg, monkeypatch):
+    def boom(cfg):
+        raise RuntimeError("kaboom")
+
+    monkeypatch.setattr(worker, "run_scan_sync", boom)
+    assert worker.start_job(cfg) is True
+    deadline = time.monotonic() + 5
+    while worker.is_running() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not worker.is_running()
+    s = worker.status()
+    assert s["phase"] == "error"
+    assert "kaboom" in s["message"]
+
+
+def test_fingerprint_persists_fingerprinting_phase(cfg, monkeypatch):
+    conn = _conn(cfg)
+    db.start_scan(conn, kind="scan")
+    conn.close()
+    calls = []
+    real_update_scan = db.update_scan
+
+    def spy(conn_, scan_id_, **fields):
+        calls.append(fields)
+        return real_update_scan(conn_, scan_id_, **fields)
+
+    monkeypatch.setattr(worker.db, "update_scan", spy)
+    worker.run_fingerprint_sync(cfg)
+    assert any(c.get("phase") == "fingerprinting" for c in calls)
+    assert any(c.get("phase") == "done" for c in calls)

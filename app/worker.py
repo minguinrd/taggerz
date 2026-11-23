@@ -5,6 +5,7 @@ threads. A single module-level lock serialises jobs.
 """
 
 import threading
+import traceback
 from pathlib import Path
 
 from app import db, scan
@@ -57,6 +58,9 @@ def run_fingerprint_sync(cfg: Config) -> dict:
 
     try:
         acoustid_key = cfg.acoustid_app_key or default_acoustid_key()
+        if scan_id is not None:
+            db.update_scan(conn, scan_id, phase="fingerprinting",
+                           fingerprinted=_fingerprinted, errors=_errors)
         pending = list(db.list_by_status(conn, ("pending",)))
         for prop in pending:
             try:
@@ -136,16 +140,27 @@ def start_job(cfg: Config, kind: str = "scan") -> bool:
         return False
 
     def _target() -> None:
+        global _phase, _message
         try:
             if kind == "fingerprint":
                 run_fingerprint_sync(cfg)
             else:
                 run_scan_sync(cfg)
+        except Exception as exc:
+            # A crashed job must not leave status() stuck on a live phase.
+            _phase = "error"
+            _message = f"{type(exc).__name__}: {exc}"
+            traceback.print_exc()
         finally:
             _lock.release()
 
-    thread = threading.Thread(target=_target, daemon=True)
-    thread.start()
+    try:
+        thread = threading.Thread(target=_target, daemon=True)
+        thread.start()
+    except BaseException:
+        # Thread never ran, so _target's finally cannot release the lock.
+        _lock.release()
+        raise
     return True
 
 
