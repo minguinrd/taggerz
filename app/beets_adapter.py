@@ -114,8 +114,10 @@ def expected_path(path: Path) -> Path:
     from beets.util.pathformats import get_path_formats
 
     item = Item.from_path(path)
-    # destination() needs a db for `.replacements`; attach the singleton
-    # without claiming a real row id beyond what _check_db requires.
+    # destination() always reads self.db.replacements, and the Model.db
+    # property runs _check_db(need_id=True) — so a detached item needs both
+    # the attached library and a truthy id, even with basedir/path_formats
+    # passed explicitly. Harmless: lib().add() reassigns id on insert.
     item._db = lib()
     item.id = 1
 
