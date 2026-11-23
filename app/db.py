@@ -6,7 +6,13 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from .models import KINDS, STATUS_AWAITING_REVIEW, STATUSES, Proposal
+from .models import (
+    KINDS,
+    STATUS_AWAITING_REVIEW,
+    STATUS_PENDING,
+    STATUSES,
+    Proposal,
+)
 
 _SCAN_COLUMNS = frozenset({
     "kind", "phase", "seen", "queued", "fingerprinted", "errors", "status",
@@ -81,9 +87,9 @@ def enqueue(conn: sqlite3.Connection, *, path: str, mtime: float, size: int,
     conn.execute(
         """INSERT INTO proposals
                (path, mtime, size, kind, status, current_tags, candidates)
-           VALUES (?, ?, ?, ?, 'pending', ?, '[]')
+           VALUES (?, ?, ?, ?, ?, ?, '[]')
            ON CONFLICT(path) DO NOTHING""",
-        (path, mtime, size, kind, json.dumps(current_tags)),
+        (path, mtime, size, kind, STATUS_PENDING, json.dumps(current_tags)),
     )
     conn.commit()
     row = conn.execute("SELECT * FROM proposals WHERE path = ?", (path,)).fetchone()
