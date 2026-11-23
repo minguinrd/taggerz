@@ -125,12 +125,15 @@ def list_all(conn: sqlite3.Connection) -> list[Proposal]:
 
 def update_status(conn: sqlite3.Connection, pid: int, status: str, *,
                   error: str | None = None, mtime: float | None = None,
-                  size: int | None = None, kind: str | None = None) -> None:
+                  size: int | None = None, kind: str | None = None,
+                  current_tags: dict | None = None) -> None:
     """Move a proposal to `status`; only the given optional fields change.
 
     The error column always follows the `error` argument: passing a message
     stores it, passing nothing clears it (an error text is only meaningful
-    while the row sits in `error`).
+    while the row sits in `error`). `current_tags` is the opposite: None
+    leaves the stored tags untouched, a dict replaces them (Task 4's rescan
+    refreshes tags only when a changed file is re-queued).
     """
     if status not in STATUSES:
         raise ValueError(f"unknown status: {status!r}")
@@ -147,6 +150,9 @@ def update_status(conn: sqlite3.Connection, pid: int, status: str, *,
     if kind is not None:
         sets.append("kind = ?")
         args.append(kind)
+    if current_tags is not None:
+        sets.append("current_tags = ?")
+        args.append(json.dumps(current_tags))
     args.append(pid)
     conn.execute(f"UPDATE proposals SET {', '.join(sets)} WHERE id = ?", args)
     conn.commit()

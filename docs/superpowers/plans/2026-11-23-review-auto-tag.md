@@ -119,7 +119,7 @@ git commit -m "chore: scaffold repo, toolchain, and config loader"
   - `enqueue(conn, *, path: str, mtime: float, size: int, kind: str, current_tags: dict) -> Proposal` — `INSERT … ON CONFLICT(path) DO NOTHING`, then returns the row (existing row returned as-is: status and decisions preserved).
   - `get(conn, pid: int) -> Proposal | None`, `get_by_path(conn, path: str) -> Proposal | None`
   - `list_by_status(conn, statuses: Sequence[str]) -> list[Proposal]`, `list_all(conn) -> list[Proposal]`
-  - `update_status(conn, pid: int, status: str, *, error: str | None = None, mtime: float | None = None, size: int | None = None, kind: str | None = None) -> None`
+  - `update_status(conn, pid: int, status: str, *, error: str | None = None, mtime: float | None = None, size: int | None = None, kind: str | None = None, current_tags: dict | None = None) -> None` — `error` follows the arg (None clears; added after Task 2 review so error text never goes stale), `current_tags` is written only when passed (None leaves stored tags alone; Task 4's rescan uses it to refresh tags on a changed file).
   - `set_candidates(conn, pid: int, candidates: list[dict], *, kind: str | None = None) -> None` — sets status `awaiting-review`, clears `error`.
   - `set_beets_item_id(conn, pid: int, item_id: int) -> None`
   - `start_scan(conn, *, kind: str) -> int`, `update_scan(conn, scan_id: int, **fields) -> None`, `latest_scan(conn) -> dict | None` — scans table: `id, kind, phase, seen, queued, fingerprinted, errors, status, message, started_at, finished_at`.

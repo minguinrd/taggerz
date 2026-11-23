@@ -218,3 +218,27 @@ def test_data_persists_across_connections(tmp_path):
         assert got.status == "error" and got.error == "boom"
     finally:
         reopened.close()
+
+
+def test_update_status_refreshes_current_tags_when_passed(tmp_path):
+    conn = _open(tmp_path)
+    p = _enqueue(conn)
+    db.update_status(conn, p.id, "pending",
+                     current_tags={"title": "New", "track": 1},
+                     mtime=9.0, size=9)
+    got = db.get(conn, p.id)
+    assert got.current_tags == {"title": "New", "track": 1}
+    assert got.mtime == 9.0 and got.size == 9
+    # None leaves stored tags alone (the common case)
+    db.update_status(conn, p.id, "done")
+    assert db.get(conn, p.id).current_tags == {"title": "New", "track": 1}
+    conn.close()
+
+
+def test_enqueue_same_path_preserves_kind_on_conflict(tmp_path):
+    conn = _open(tmp_path)
+    p = _enqueue(conn)
+    again = db.enqueue(conn, path="/m/a.flac", mtime=9.0, size=9,
+                       kind="manual", current_tags={})
+    assert again.id == p.id and again.kind == "needs-tags"
+    conn.close()
