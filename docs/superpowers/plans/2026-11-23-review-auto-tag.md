@@ -174,7 +174,7 @@ Schema: `proposals(path TEXT UNIQUE NOT NULL, mtime REAL, size INTEGER, kind TEX
   - Exceptions defined here for later tasks: `DestinationExists(Exception)`, `FileChanged(Exception)`, `ApplyFailed(Exception)` with optional `.item_id: int | None`.
 - Produces (`tests/conftest.py`): `cfg` fixture (tmp `music/` + `data/` dirs → `Config`), `make_track(dir, filename, **tags)` helper copying `tests/fixtures/silence.flac` and setting tags via `mediafile.MediaFile`, and an **autouse** fixture that calls `beets_adapter._reset()` before every test — beets config and the library singleton are process-global, so each test re-runs `ensure_setup` against its own tmp dirs.
 
-- [ ] **Step 1: Generate the audio fixture**
+- [x] **Step 1: Generate the audio fixture**
 
 ```bash
 mkdir -p tests/fixtures
@@ -188,7 +188,7 @@ chmod +x tests/fixtures/make_fixtures.sh
 ```
 Expected: `tests/fixtures/silence.flac` exists and is < 50 KB.
 
-- [ ] **Step 2: Write the failing tests** — `tests/test_beets_adapter.py`:
+- [x] **Step 2: Write the failing tests** — `tests/test_beets_adapter.py`:
 
 ```python
 def test_ensure_setup_writes_config_yaml(cfg):
@@ -220,15 +220,15 @@ def test_expected_path_follows_template(cfg, make_track):
     # zero-padded track: template's $track renders "01"
 ```
 
-- [ ] **Step 3: Run to verify failure** — `.venv/bin/pytest tests/test_beets_adapter.py -v` → FAIL `ModuleNotFoundError: No module named 'app.beets_adapter'`.
+- [x] **Step 3: Run to verify failure** — `.venv/bin/pytest tests/test_beets_adapter.py -v` → FAIL `ModuleNotFoundError: No module named 'app.beets_adapter'`.
 
-- [ ] **Step 4: Implement `app/beets_adapter.py` (setup + reads) and `tests/conftest.py`**
+- [x] **Step 4: Implement `app/beets_adapter.py` (setup + reads) and `tests/conftest.py`**
 
 Note on `expected_path`: construct via `Item.from_path`, call `destination()` — beets renders `$track` zero-padded (`01`) and appends the file's extension. `ensure_setup` applies YAML values through confuse assignment (`config["paths"]["default"] = …`) so repeated test re-inits replace rather than stack. `conftest.make_track` sets attributes on `mediafile.MediaFile(path)` then `.save()`.
 
-- [ ] **Step 5: Run to verify pass** — `.venv/bin/pytest tests/test_beets_adapter.py -v` → 5 passed. If `$track` padding differs, the test's expected value is authoritative — fix the template/config, not the test.
+- [x] **Step 5: Run to verify pass** — `.venv/bin/pytest tests/test_beets_adapter.py -v` → 5 passed. If `$track` padding differs, the test's expected value is authoritative — fix the template/config, not the test.
 
-- [ ] **Step 6: Commit** — `git add -A && git commit -m "feat: beets adapter setup, tag reading, expected path"`
+- [x] **Step 6: Commit** — `git add -A && git commit -m "feat: beets adapter setup, tag reading, expected path"`
 
 ---
 
