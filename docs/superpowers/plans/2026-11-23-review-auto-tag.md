@@ -578,7 +578,7 @@ def test_static_assets_served(...):           # GET /static/app.js → 200
   - `POST /proposal/<int:pid>/identify` → clear candidates, status `pending`, `start_job(cfg, "fingerprint")`.
   - `POST /albums/approve` → form field `album_key`: every `awaiting-review` proposal in that group — with candidates → approve candidate[0]; `organize-only` → move-only; `unidentified`/`pending` → skipped over. Collect per-file errors (they become `error` rows). Flash `approved N, failed M`. Redirect to queue.
 
-- [ ] **Step 1: Write the failing tests** — additions to `tests/test_web.py` (`apply_approved` monkeypatched to `beets_adapter` where the test is about *routing*, real adapter where noted):
+- [x] **Step 1: Write the failing tests** — additions to `tests/test_web.py` (`apply_approved` monkeypatched to `beets_adapter` where the test is about *routing*, real adapter where noted):
 
 ```python
 def test_approve_candidate_writes_and_marks_done(...):
@@ -610,11 +610,11 @@ def test_bulk_approve_ignores_unidentified(...):  # unidentified row not attempt
 
 - [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_web.py -v` → FAIL (new routes 404).
 
-- [ ] **Step 3: Implement routes + `proposal.html`**
+- [x] **Step 3: Implement routes + `proposal.html`**
 
-- [ ] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_web.py -v` → all passed.
+- [x] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_web.py -v` → all passed.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: review actions — approve, edit, skip, retry, bulk"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat: review actions — approve, edit, skip, retry, bulk"`
 
 ---
 

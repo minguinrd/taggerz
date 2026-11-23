@@ -1,4 +1,5 @@
 import app.db as db
+from app import beets_adapter, worker
 from app.models import STATUSES
 
 
@@ -136,3 +137,268 @@ def test_open_path_non_audio_rejected(cfg, make_track, client):
 def test_static_assets_served(client):
     resp = client.get("/static/app.js")
     assert resp.status_code == 200
+
+def _seed_proposal(cfg, make_track, filename="a.flac", kind="needs-tags",
+                   status="awaiting-review", candidates=None, mtime=None,
+                   size=None, current_tags=None, error=None):
+    p = make_track(cfg.music_dir, filename, title="Old")
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    if mtime is None:
+        mtime = p.stat().st_mtime
+    if size is None:
+        size = p.stat().st_size
+    if current_tags is None:
+        current_tags = {"title": "Old"}
+    row = db.enqueue(conn, path=str(p), mtime=mtime, size=size, kind=kind,
+                     current_tags=current_tags)
+    if candidates is not None:
+        db.set_candidates(conn, row.id, candidates, kind=kind if kind else None)
+    if status != "awaiting-review":
+        db.update_status(conn, row.id, status, error=error)
+    conn.close()
+    return p, row
+
+
+def test_approve_candidate_writes_and_marks_done(cfg, make_track, client, monkeypatch):
+    cand = {f: f"V-{f}" for f in beets_adapter.CANDIDATE_FIELDS}
+    cand.update({"track": 1, "disc": 1, "year": 2000, "score": 0.9,
+                 "recommendation": "strong"})
+    p, row = _seed_proposal(cfg, make_track, candidates=[cand])
+    calls = []
+
+    def fake(path, fields, move_only=False, expect=None, beets_item_id=None):
+        calls.append({"fields": fields, "move_only": move_only, "expect": expect})
+        return (cfg.music_dir / "A" / "B" / "01 - New.flac", 42)
+
+    monkeypatch.setattr(beets_adapter, "apply_approved", fake)
+    resp = client.post(f"/proposal/{row.id}/approve",
+                       data={"action": "candidate"}, follow_redirects=True)
+    assert resp.status_code == 200
+    assert b"tagged and moved" in resp.data
+    assert len(calls) == 1
+    assert calls[0]["move_only"] is False
+    assert calls[0]["fields"] == {f: cand.get(f) for f in beets_adapter.CANDIDATE_FIELDS}
+    assert calls[0]["expect"] == (p.stat().st_mtime, p.stat().st_size)
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status == "done"
+    assert prop.beets_item_id == 42
+    conn.close()
+
+
+def test_approve_edits_coerces_types(cfg, make_track, client, monkeypatch):
+    p, row = _seed_proposal(cfg, make_track, candidates=[])
+    calls = []
+
+    def fake(path, fields, move_only=False, expect=None, beets_item_id=None):
+        calls.append(fields)
+        return (cfg.music_dir / "x.flac", 7)
+
+    monkeypatch.setattr(beets_adapter, "apply_approved", fake)
+    resp = client.post(f"/proposal/{row.id}/approve",
+                       data={"action": "edits", "track": "3", "year": ""},
+                       follow_redirects=True)
+    assert resp.status_code == 200
+    assert calls and calls[0] == {"track": 3, "year": None}
+
+
+def test_approve_unidentified_without_fields_rejected(cfg, make_track, client, monkeypatch):
+    p, row = _seed_proposal(cfg, make_track, kind="unidentified", candidates=[])
+    called = {"n": 0}
+
+    def fake(*a, **k):
+        called["n"] += 1
+        return (cfg.music_dir / "x.flac", 1)
+
+    monkeypatch.setattr(beets_adapter, "apply_approved", fake)
+    resp = client.post(f"/proposal/{row.id}/approve",
+                       data={"action": "candidate"}, follow_redirects=True)
+    assert resp.status_code == 200
+    assert called["n"] == 0
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status != "done"
+    conn.close()
+
+
+def test_approve_with_changed_mtime_errors(cfg, make_track, client):
+    cand = {f: "X" for f in beets_adapter.CANDIDATE_FIELDS}
+    cand.update({"track": 1, "disc": 1, "year": 2000})
+    p, row = _seed_proposal(cfg, make_track, candidates=[cand],
+                            mtime=1.0, size=2)
+    resp = client.post(f"/proposal/{row.id}/approve",
+                       data={"action": "candidate"}, follow_redirects=True)
+    assert resp.status_code == 200
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status == "error"
+    assert prop.error and "changed" in prop.error.lower()
+    conn.close()
+
+
+def test_approve_collision_surfaces_badge(cfg, make_track, client):
+    p = make_track(cfg.music_dir, "src.flac", title="T", artist="A", album="B",
+                   albumartist="A", track=1)
+    cand = {f: None for f in beets_adapter.CANDIDATE_FIELDS}
+    cand.update({"title": "T", "artist": "A", "album": "B", "albumartist": "A",
+                 "track": 1, "disc": 1, "year": 2000})
+    cand = {f: cand.get(f) for f in beets_adapter.CANDIDATE_FIELDS}
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    row = db.enqueue(conn, path=str(p), mtime=p.stat().st_mtime,
+                     size=p.stat().st_size, kind="needs-tags",
+                     current_tags={"title": "T"})
+    db.set_candidates(conn, row.id, [cand])
+    conn.close()
+
+    dest = cfg.music_dir / "A" / "B" / "01 - T.flac"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"EXISTING")
+
+    resp = client.post(f"/proposal/{row.id}/approve",
+                       data={"action": "candidate"}, follow_redirects=True)
+    assert resp.status_code == 200
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status == "error"
+    assert prop.error and "destination exists" in prop.error
+    conn.close()
+    assert dest.read_bytes() == b"EXISTING"
+
+    resp2 = client.get("/")
+    assert b"destination exists" in resp2.data
+
+
+def test_skip_and_reset_roundtrip(cfg, make_track, client):
+    cand = [{f: "X" for f in beets_adapter.CANDIDATE_FIELDS}]
+    p, row = _seed_proposal(cfg, make_track, candidates=cand)
+    resp = client.post(f"/proposal/{row.id}/skip", follow_redirects=True)
+    assert resp.status_code == 200
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    assert db.get(conn, row.id).status == "skipped"
+    conn.close()
+
+    resp = client.post(f"/proposal/{row.id}/reset", follow_redirects=True)
+    assert resp.status_code == 200
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    assert db.get(conn, row.id).status == "awaiting-review"
+    conn.close()
+
+
+def test_retry_without_candidates_requeues(cfg, make_track, client, monkeypatch):
+    p, row = _seed_proposal(cfg, make_track, status="error", candidates=[])
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    db.update_status(conn, row.id, "error", error="boom")
+    conn.execute("UPDATE proposals SET candidates='[]' WHERE id=?", (row.id,))
+    conn.commit()
+    conn.close()
+
+    started = {"n": 0}
+
+    def fake_start(cfg, kind="scan"):
+        started["n"] += 1
+        return True
+
+    monkeypatch.setattr(worker, "start_job", fake_start)
+    resp = client.post(f"/proposal/{row.id}/retry", follow_redirects=True)
+    assert resp.status_code == 200
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status == "pending"
+    assert prop.candidates == []
+    conn.close()
+    assert started["n"] == 1
+
+
+def test_identify_clears_candidates(cfg, make_track, client, monkeypatch):
+    cand = [{f: "X" for f in beets_adapter.CANDIDATE_FIELDS}]
+    p, row = _seed_proposal(cfg, make_track, candidates=cand)
+    monkeypatch.setattr(worker, "start_job", lambda cfg, kind="scan": True)
+    resp = client.post(f"/proposal/{row.id}/identify", follow_redirects=True)
+    assert resp.status_code == 200
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status == "pending"
+    assert prop.candidates == []
+    conn.close()
+
+
+def test_bulk_approve_partial_failure(cfg, make_track, client):
+    p1 = make_track(cfg.music_dir, "c1.flac", title="T1", artist="A", album="B",
+                    albumartist="A", track=1)
+    p2 = make_track(cfg.music_dir, "c2.flac", title="T2", artist="A", album="B",
+                    albumartist="A", track=2)
+    p3 = make_track(cfg.music_dir, "c3.flac", title="T3", artist="A", album="B",
+                    albumartist="A", track=3)
+
+    def make_cand(title, track):
+        c = {f: None for f in beets_adapter.CANDIDATE_FIELDS}
+        c.update({"title": title, "artist": "A", "album": "B",
+                  "albumartist": "A", "track": track, "disc": 1, "year": 2000})
+        return c
+
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    for p, title, track in ((p1, "T1", 1), (p2, "T2", 2), (p3, "T3", 3)):
+        row = db.enqueue(conn, path=str(p), mtime=p.stat().st_mtime,
+                         size=p.stat().st_size, kind="needs-tags",
+                         current_tags={"title": title})
+        db.set_candidates(conn, row.id, [make_cand(title, track)])
+    conn.close()
+
+    dest = cfg.music_dir / "A" / "B" / "01 - T1.flac"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"EXISTING")
+
+    resp = client.post("/albums/approve", data={"album_key": "A | B"},
+                       follow_redirects=True)
+    assert resp.status_code == 200
+    assert b"approved 2" in resp.data
+
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    done = [r for r in db.list_all(conn) if r.status == "done"]
+    err = [r for r in db.list_all(conn) if r.status == "error"]
+    assert len(done) == 2
+    assert len(err) == 1
+    assert err[0].error and "destination exists" in err[0].error
+    conn.close()
+
+
+def test_bulk_approve_ignores_unidentified(cfg, make_track, client, monkeypatch):
+    p = make_track(cfg.music_dir, "u.flac", title="U", artist="A", album="B",
+                   albumartist="A", track=1)
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    row = db.enqueue(conn, path=str(p), mtime=p.stat().st_mtime,
+                     size=p.stat().st_size, kind="unidentified",
+                     current_tags={"title": "U"})
+    db.set_candidates(conn, row.id, [], kind="unidentified")
+    conn.close()
+
+    called = {"n": 0}
+
+    def fake(*a, **k):
+        called["n"] += 1
+        return (cfg.music_dir / "x.flac", 1)
+
+    monkeypatch.setattr(beets_adapter, "apply_approved", fake)
+    resp = client.post("/albums/approve", data={"album_key": "A | B"},
+                       follow_redirects=True)
+    assert resp.status_code == 200
+    assert called["n"] == 0
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status == "awaiting-review"
+    conn.close()
