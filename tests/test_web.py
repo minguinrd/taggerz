@@ -1,5 +1,9 @@
+import os
+
+import pytest
+
 import app.db as db
-from app import beets_adapter, worker
+from app import beets_adapter, create_app, worker
 from app.models import STATUSES
 
 
@@ -459,3 +463,27 @@ def test_open_path_existing_row_clears_candidates(cfg, make_track, client,
     assert prop.kind == "manual"
     assert prop.candidates == []   # stale candidates cleared, no status force
     conn.close()
+
+
+def test_create_app_fails_fast_on_readonly_data_dir(cfg):
+    # wrong-owner data volume must fail at boot with a clear message,
+    # not as a cryptic sqlite error on the first scan click
+    os.chmod(cfg.data_dir, 0o555)
+    try:
+        with pytest.raises(RuntimeError, match="not writable"):
+            create_app(cfg)
+    finally:
+        os.chmod(cfg.data_dir, 0o755)
+
+
+def test_create_app_fails_fast_on_readonly_queue_db(cfg):
+    # dir writable, DB file itself not (partial chown): same clear failure
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    conn.close()
+    os.chmod(cfg.db_path, 0o444)
+    try:
+        with pytest.raises(RuntimeError, match="not writable"):
+            create_app(cfg)
+    finally:
+        os.chmod(cfg.db_path, 0o644)
