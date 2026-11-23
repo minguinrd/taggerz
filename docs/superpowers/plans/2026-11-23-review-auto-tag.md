@@ -124,7 +124,7 @@ git commit -m "chore: scaffold repo, toolchain, and config loader"
   - `set_beets_item_id(conn, pid: int, item_id: int) -> None`
   - `start_scan(conn, *, kind: str) -> int`, `update_scan(conn, scan_id: int, **fields) -> None`, `latest_scan(conn) -> dict | None` — scans table: `id, kind, phase, seen, queued, fingerprinted, errors, status, message, started_at, finished_at`.
 
-- [ ] **Step 1: Write the failing tests** — `tests/test_db.py`, key cases:
+- [x] **Step 1: Write the failing tests** — `tests/test_db.py`, key cases:
 
 ```python
 def test_enqueue_creates_pending(tmp_path):
@@ -145,15 +145,15 @@ def test_json_roundtrip_of_tags_and_candidates(tmp_path): ...  # dict with neste
 def test_scans_roundtrip(tmp_path): ...  # start → update phase/counters → latest_scan returns them
 ```
 
-- [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_db.py -v` → FAIL `ModuleNotFoundError: No module named 'app.db'`.
+- [x] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_db.py -v` → FAIL `ModuleNotFoundError: No module named 'app.db'`.
 
-- [ ] **Step 3: Implement `app/models.py` + `app/db.py`**
+- [x] **Step 3: Implement `app/models.py` + `app/db.py`**
 
 Schema: `proposals(path TEXT UNIQUE NOT NULL, mtime REAL, size INTEGER, kind TEXT, status TEXT, current_tags TEXT /*JSON*/, candidates TEXT /*JSON*/, error TEXT, beets_item_id INTEGER, id INTEGER PRIMARY KEY AUTOINCREMENT)` and `scans(...)`. JSON columns de/serialized with `json.loads/json.dumps`. `enqueue` uses `INSERT … ON CONFLICT(path) DO NOTHING` followed by a select, so existing rows (and their statuses) win.
 
-- [ ] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_db.py -v` → all passed.
+- [x] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_db.py -v` → all passed.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: sqlite proposal queue with sticky decisions"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat: sqlite proposal queue with sticky decisions"`
 
 ---
 
