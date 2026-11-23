@@ -89,12 +89,14 @@ def test_real_trackinfo_item_data_has_candidate_fields():
     ti = TrackInfo(title="T", index=3, track_id="mt", medium=1, year=1999,
                    artist="A", album="B", albumartist="A")
     data = ti.item_data
+    # flattening reads every CANDIDATE_FIELD with .get — must never raise
     for field in beets_adapter.CANDIDATE_FIELDS:
-        # item_data may omit unset values; .get semantics means absence is OK,
-        # but keys that are set must be present. Check the subset that should
-        # be present for this input.
-        pass
-    assert "title" in data
-    assert data.get("mb_trackid") == "mt"
-    assert data.get("track") == 3
-    assert data.get("disc") == 1
+        data.get(field)
+    # every field this TrackInfo sets must actually be present (mb_albumid
+    # is the one field left unset here and legitimately absent)
+    for field in set(beets_adapter.CANDIDATE_FIELDS) - {"mb_albumid"}:
+        assert field in data, field
+    assert data["mb_trackid"] == "mt"
+    assert data["track"] == 3
+    assert data["disc"] == 1
+    assert data["year"] == 1999

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 import yaml
+from beets.autotag.match import tag_item
 
 from app.config import Config
 
@@ -17,9 +18,6 @@ CANDIDATE_FIELDS = (
     "title", "artist", "album", "albumartist", "track", "disc", "year",
     "mb_trackid", "mb_albumid",
 )
-
-# Patchable hook for tests.
-tag_item = None
 
 
 class DestinationExists(Exception):
@@ -154,21 +152,17 @@ def candidates_for(path: Path, ids: list[str]) -> list[dict]:
     from beets.autotag import Source
     from beets.library import Item
 
-    tag_item_fn = globals().get("tag_item")
-    if tag_item_fn is None:
-        from beets.autotag.match import tag_item as tag_item_fn
-
     item = Item.from_path(path)
     source = Source.from_item(item)
 
     proposal = None
     if ids:
-        proposal = tag_item_fn(source, search_ids=ids)
+        proposal = tag_item(source, search_ids=ids)
         if not (proposal and proposal.candidates):
             # Fall back to text search once.
-            proposal = tag_item_fn(source)
+            proposal = tag_item(source)
     else:
-        proposal = tag_item_fn(source)
+        proposal = tag_item(source)
 
     if not proposal or not proposal.candidates:
         return []
