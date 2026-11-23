@@ -15,7 +15,7 @@
       {% for p in items %}
       <tr>
         <td>{{ p.path }}</td>
-        <td class="badge {{ badge(p).lower().replace(' ', '-') }}">{{ badge(p) }}</td>
+        <td class="badge {{ badge(p).lower().replace(' ', '-').replace('…', '') }}">{{ badge(p) }}</td>
       </tr>
       {% endfor %}
     </table>
