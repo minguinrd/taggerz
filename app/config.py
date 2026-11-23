@@ -1,9 +1,9 @@
 """Application configuration: env-var driven, pure, no filesystem access."""
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 
 @dataclass(frozen=True)

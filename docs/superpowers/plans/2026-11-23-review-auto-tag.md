@@ -44,7 +44,7 @@ Five failure modes the spec implies that ordinary happy-path tests miss. Each is
 - Produces: `app.config.Config` — frozen dataclass with fields `music_dir: Path`, `data_dir: Path`, `db_path: Path`, `acoustid_app_key: str | None`, `host: str`, `port: int`.
 - Produces: `app.config.load_config(environ: Mapping[str, str] = os.environ) -> Config` — pure, touches no filesystem. `db_path` is always `data_dir / "queue.db"`.
 
-- [ ] **Step 1: Bootstrap toolchain**
+- [x] **Step 1: Bootstrap toolchain**
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -54,7 +54,7 @@ $HOME/.local/bin/uv pip freeze --python .venv/bin/python > requirements.txt
 ```
 Expected: `.venv/bin/python --version` → `3.12.x`; `requirements.txt` contains `beets==2.14.1`.
 
-- [ ] **Step 2: Write the failing config tests** — `tests/test_config.py`:
+- [x] **Step 2: Write the failing config tests** — `tests/test_config.py`:
 
 ```python
 def test_defaults(monkeypatch):
@@ -82,20 +82,20 @@ def test_bad_port_rejected():
         load_config(environ={"PORT": "not-a-port"})
 ```
 
-- [ ] **Step 3: Run to verify failure**
+- [x] **Step 3: Run to verify failure**
 
 Run: `.venv/bin/pytest tests/test_config.py -v`
 Expected: FAIL with `ModuleNotFoundError: No module named 'app.config'`
 
-- [ ] **Step 4: Implement `app/config.py`**
+- [x] **Step 4: Implement `app/config.py`**
 
 Frozen dataclass `Config`; `load_config` reads the five env vars with the defaults above, `int()`-parses PORT (ValueError propagates), returns `Config`. Create `app/__init__.py` as an empty package marker.
 
-- [ ] **Step 5: Run to verify pass**
+- [x] **Step 5: Run to verify pass**
 
 Run: `.venv/bin/pytest tests/test_config.py -v` → 3 passed.
 
-- [ ] **Step 6: Scaffold repo and commit**
+- [x] **Step 6: Scaffold repo and commit**
 
 Write `pytest.ini` (`[pytest] testpaths = tests`), `.gitignore` (`.venv/`, `__pycache__/`, `*.pyc`, `music/`, `/data/`), then:
 

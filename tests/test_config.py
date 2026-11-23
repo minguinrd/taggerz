@@ -30,3 +30,9 @@ def test_env_overrides():
 def test_bad_port_rejected():
     with pytest.raises(ValueError):
         load_config(environ={"PORT": "not-a-port"})
+
+
+def test_empty_acoustid_key_is_none():
+    # docker-compose passes ${ACOUSTID_APP_KEY:-} → "" must mean "unset"
+    cfg = load_config(environ={"ACOUSTID_APP_KEY": ""})
+    assert cfg.acoustid_app_key is None
