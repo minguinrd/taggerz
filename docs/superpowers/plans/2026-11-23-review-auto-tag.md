@@ -474,7 +474,7 @@ def test_expect_match_proceeds(cfg, make_track): ...  # expect == actual stat �
   - `is_running() -> bool`, `status() -> dict` — shape: `{"running": bool, "phase": str, "seen": int, "queued": int, "fingerprinted": int, "errors": int, "message": str | None, "last_scan": dict | None}` (last_scan from `db.latest_scan`).
 - Import style (tests monkeypatch these exact names): `from .fingerprint import recording_ids, AcoustidFailure` and `from .beets_adapter import candidates_for, default_acoustid_key` **into `worker`'s namespace**. AcoustID key resolution: `cfg.acoustid_app_key or default_acoustid_key()`, passed to `recording_ids`.
 
-- [ ] **Step 1: Write the failing tests** — `tests/test_worker.py` (fingerprint layer monkeypatched: `worker.recording_ids` and `worker.candidates_for`):
+- [x] **Step 1: Write the failing tests** — `tests/test_worker.py` (fingerprint layer monkeypatched: `worker.recording_ids` and `worker.candidates_for`):
 
 ```python
 def test_scan_sync_produces_reviewable_proposals(cfg, make_track, monkeypatch):
@@ -498,15 +498,15 @@ def test_pending_rows_are_resumed(...):
 def test_status_shape(...):  # assert exact key set of status()
 ```
 
-- [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_worker.py -v` → FAIL `ModuleNotFoundError: No module named 'app.worker'`.
+- [x] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_worker.py -v` → FAIL `ModuleNotFoundError: No module named 'app.worker'`.
 
-- [ ] **Step 3: Implement `app/worker.py`**
+- [x] **Step 3: Implement `app/worker.py`**
 
 DB connections opened inside each function (`db.connect(cfg.db_path)`), never shared across threads. Module-level `threading.Lock`.
 
-- [ ] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_worker.py -v` → all passed.
+- [x] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_worker.py -v` → all passed.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: background scan/fingerprint worker with progress"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat: background scan/fingerprint worker with progress"`
 
 ---
 
