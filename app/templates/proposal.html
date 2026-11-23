@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Proposal {{ proposal.id }}</h1>
+<p>{{ proposal.path }}</p>
+<p class="badge">{{ badge(proposal) }}</p>
+
+<h2>Current tags</h2>
+<table>
+  {% for k, v in proposal.current_tags.items() %}
+  <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
+  {% endfor %}
+</table>
+
+{% if proposal.candidates %}
+<h2>Candidates</h2>
+{% for c in proposal.candidates %}
+<div class="candidate">
+  <p>score: {{ ((c.get('score') or 0) * 100)|round }}% recommendation: {{ c.get('recommendation') }}</p>
+  <table>
+    {% for f in candidate_fields %}
+    <tr><td>{{ f }}</td><td>{{ c.get(f) }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endfor %}
+{% endif %}
+
+<h2>Approve</h2>
+<form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}">
+  <input type="hidden" name="action" value="candidate">
+  {% if proposal.candidates %}
+  <label><input type="radio" name="candidate" value="0" checked> Use candidate 0</label>
+  <button type="submit">Approve</button>
+  {% endif %}
+</form>
+
+<form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}">
+  <input type="hidden" name="action" value="edits">
+  {% set src = (proposal.candidates[0] if proposal.candidates else proposal.current_tags) or {} %}
+  {% for f in candidate_fields %}
+  <label>{{ f }}: <input name="{{ f }}" value="{{ src.get(f) if src.get(f) is not none else '' }}"></label><br>
+  {% endfor %}
+  <button type="submit">Save &amp; approve edits</button>
+</form>
+
+{% if proposal.kind == "organize-only" %}
+<form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}">
+  <input type="hidden" name="action" value="move">
+  <button type="submit">Move only</button>
+</form>
+{% endif %}
+
+<form method="post" action="{{ url_for('web.skip', pid=proposal.id) }}">
+  <button type="submit">Skip</button>
+</form>
+<form method="post" action="{{ url_for('web.reset', pid=proposal.id) }}">
+  <button type="submit">Reset to queue</button>
+</form>
+<form method="post" action="{{ url_for('web.retry', pid=proposal.id) }}">
+  <button type="submit">Retry</button>
+</form>
+<form method="post" action="{{ url_for('web.identify', pid=proposal.id) }}">
+  <button type="submit">Identify again</button>
+</form>
+{% endblock %}
