@@ -246,7 +246,7 @@ Note on `expected_path`: construct via `Item.from_path`, call `destination()` �
   - `walk(music_dir: Path) -> Iterator[Path]` — audio files only, skips dot-directories.
   - `run(cfg: Config) -> dict` — full scan pass; returns stats `{"seen", "queued", "errors", "missing_files"}` and updates the `scans` row. Rescan rules: no row → classify + enqueue; row exists → untouched unless status `done` and `(mtime, size)` changed (recompute kind; if now `None` keep `done` with updated mtime/size, else reset to `pending` with new kind/tags/mtime/size); open rows (`pending`/`awaiting-review`) whose file vanished → status `error`, message `file no longer exists`. Read exceptions per file → counted in `errors`, no proposal.
 
-- [ ] **Step 1: Write the failing tests** — `tests/test_scan.py`:
+- [x] **Step 1: Write the failing tests** — `tests/test_scan.py`:
 
 ```python
 def _seed_tree(cfg, make_track):
@@ -288,15 +288,15 @@ def test_scan_does_not_modify_files(cfg, make_track):
     assert before == after
 ```
 
-- [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_scan.py -v` → FAIL `ModuleNotFoundError: No module named 'app.scan'`.
+- [x] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_scan.py -v` → FAIL `ModuleNotFoundError: No module named 'app.scan'`.
 
-- [ ] **Step 3: Implement `app/scan.py`**
+- [x] **Step 3: Implement `app/scan.py`**
 
 Each file: `fields = beets_adapter.read_fields(p)`; on exception → `stats["errors"] += 1`, continue. `expected = None if missing_core(fields) else beets_adapter.expected_path(p)`; `kind = classify(fields, p, expected)`. Upsert flow per rescan rules above. `ensure_setup(cfg)` at entry.
 
-- [ ] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_scan.py -v` → all passed.
+- [x] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_scan.py -v` → all passed.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: library scan with sticky rescan semantics"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat: library scan with sticky rescan semantics"`
 
 ---
 
