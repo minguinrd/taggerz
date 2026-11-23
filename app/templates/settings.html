@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Settings</h1>
+<dl>
+  <dt>music_dir</dt><dd>{{ music_dir }}</dd>
+  <dt>data_dir</dt><dd>{{ data_dir }}</dd>
+  <dt>path template (paths.default)</dt><dd>{{ template }}</dd>
+  <dt>AcoustID key source</dt><dd>{{ acoustid_source }}</dd>
+</dl>
+<h2>Proposal counts</h2>
+<ul>
+  {% for status, count in counts.items() %}
+  <li>{{ status }}: {{ count }}</li>
+  {% endfor %}
+</ul>
+<h2>Last scan</h2>
+{% if last_scan %}
+<pre>{{ last_scan }}</pre>
+{% else %}
+<p>none</p>
+{% endif %}
+{% endblock %}

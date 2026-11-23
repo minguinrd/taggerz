@@ -72,6 +72,39 @@ def queue_view():
     )
 
 
+@bp.route("/settings")
+def settings_view():
+    cfg = _cfg()
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    from app import beets_adapter
+
+    beets_adapter.ensure_setup(cfg)
+    counts = {s: len(db.list_by_status(conn, (s,))) for s in STATUSES}
+    last_scan = db.latest_scan(conn)
+    conn.close()
+
+    data = {}
+    try:
+        import yaml as _yaml
+        data = _yaml.safe_load((cfg.data_dir / "config.yaml").read_text()) or {}
+    except Exception:
+        data = {}
+    template = (data.get("paths") or {}).get("default", beets_adapter.DEFAULT_TEMPLATE)
+
+    acoustid_source = "custom" if cfg.acoustid_app_key else "beets default"
+
+    return render_template(
+        "settings.html",
+        music_dir=cfg.music_dir,
+        data_dir=cfg.data_dir,
+        template=template,
+        acoustid_source=acoustid_source,
+        counts=counts,
+        last_scan=last_scan,
+    )
+
+
 @bp.route("/api/status")
 def api_status():
     return worker.status()

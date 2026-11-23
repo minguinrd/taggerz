@@ -2,7 +2,7 @@
 {% block content %}
 <h1>Proposal {{ proposal.id }}</h1>
 <p>{{ proposal.path }}</p>
-<p class="badge">{{ badge(proposal) }}</p>
+<p class="badge {{ badge(proposal).lower().replace(' ', '-') }}">{{ badge(proposal) }}</p>
 
 <h2>Current tags</h2>
 <table>

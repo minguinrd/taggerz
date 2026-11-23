@@ -8,7 +8,7 @@
 <body>
   <nav>
     <a href="{{ url_for('web.queue_view') }}">Queue</a>
-    <a href="/settings">Settings</a>
+    <a href="{{ url_for('web.settings_view') }}">Settings</a>
   </nav>
   {% with messages = get_flashed_messages() %}
     {% if messages %}

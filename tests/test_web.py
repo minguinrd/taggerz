@@ -434,3 +434,11 @@ def test_bulk_approve_ignores_unidentified(cfg, make_track, client, monkeypatch)
     prop = db.get(conn, row.id)
     assert prop.status == "awaiting-review"
     conn.close()
+
+
+def test_settings_page_shows_configuration(cfg, client):
+    resp = client.get("/settings")
+    assert resp.status_code == 200
+    assert str(cfg.music_dir).encode() in resp.data
+    assert b"$albumartist/$album/$track - $title" in resp.data
+    assert b"beets default" in resp.data          # no ACOUSTID_APP_KEY in test env

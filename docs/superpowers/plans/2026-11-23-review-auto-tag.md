@@ -626,7 +626,7 @@ def test_bulk_approve_ignores_unidentified(...):  # unidentified row not attempt
 **Interfaces:**
 - Produces: `GET /settings` — read-only: `music_dir`, `data_dir`, effective `paths.default` template, AcoustID key source (`custom` when `cfg.acoustid_app_key` set, else `beets default` — presence-based, no network validity check in v1), proposal counts per status, last scan (`db.latest_scan`).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_settings_page_shows_configuration(cfg, client):
@@ -637,15 +637,15 @@ def test_settings_page_shows_configuration(cfg, client):
     assert b"beets default" in resp.data          # no ACOUSTID_APP_KEY in test env
 ```
 
-- [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_web.py::test_settings_page_shows_configuration -v` → FAIL (404).
+- [x] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_web.py::test_settings_page_shows_configuration -v` → FAIL (404).
 
-- [ ] **Step 3: Implement `/settings` + polish**
+- [x] **Step 3: Implement `/settings` + polish**
 
 Finish `style.css` (readable table-ish queue, visible focus states, badges with distinct colors, dark-mode-friendly via `prefers-color-scheme`), `base.html` nav (Queue · Settings), and `app.js` progress line. Plain semantic HTML — no framework, no build step.
 
-- [ ] **Step 4: Run full suite** — `.venv/bin/pytest -v` → all passed.
+- [x] **Step 4: Run full suite** — `.venv/bin/pytest -v` → all passed.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: settings page and ui polish"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat: settings page and ui polish"`
 
 ---
 
