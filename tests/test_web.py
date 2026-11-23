@@ -229,6 +229,7 @@ def test_approve_with_changed_mtime_errors(cfg, make_track, client):
     cand.update({"track": 1, "disc": 1, "year": 2000})
     p, row = _seed_proposal(cfg, make_track, candidates=[cand],
                             mtime=1.0, size=2)
+    real_before = p.stat()
     resp = client.post(f"/proposal/{row.id}/approve",
                        data={"action": "candidate"}, follow_redirects=True)
     assert resp.status_code == 200
@@ -237,6 +238,37 @@ def test_approve_with_changed_mtime_errors(cfg, make_track, client):
     prop = db.get(conn, row.id)
     assert prop.status == "error"
     assert prop.error and "changed" in prop.error.lower()
+    conn.close()
+    real_after = p.stat()
+    assert (real_after.st_mtime, real_after.st_size) == (
+        real_before.st_mtime, real_before.st_size)  # file untouched
+
+
+def test_error_status_reapprove_passes_no_expect(cfg, make_track, client,
+                                                 monkeypatch):
+    # our own earlier write changed the stat, so a re-approve after an
+    # error must not run the mtime/size guard (it would always trip)
+    cand = {f: "V" for f in beets_adapter.CANDIDATE_FIELDS}
+    cand.update({"track": 1, "disc": 1, "year": 2000})
+    p, row = _seed_proposal(cfg, make_track, candidates=[cand])
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    db.update_status(conn, row.id, "error", error="failed to move file")
+    conn.close()
+    captured = {}
+
+    def fake_apply(path, fields, *, move_only, expect, beets_item_id):
+        captured["expect"] = expect
+        return (path, 1)
+
+    monkeypatch.setattr(beets_adapter, "apply_approved", fake_apply)
+    resp = client.post(f"/proposal/{row.id}/approve",
+                       data={"action": "candidate"}, follow_redirects=True)
+    assert resp.status_code == 200
+    assert captured["expect"] is None
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    assert db.get(conn, row.id).status == "done"
     conn.close()
 
 

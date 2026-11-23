@@ -275,6 +275,7 @@ def skip(pid):
     db.init_db(conn)
     db.update_status(conn, pid, "skipped")
     conn.close()
+    flash("proposal skipped")
     return redirect(url_for("web.queue_view"))
 
 
@@ -351,7 +352,10 @@ def bulk_approve():
             if item_id is not None:
                 db.set_beets_item_id(conn, p.id, item_id)
             approved += 1
-        except Exception as exc:
+        except (beets_adapter.DestinationExists, beets_adapter.FileChanged,
+                beets_adapter.ApplyFailed) as exc:
+            # Expected apply failures become error rows; anything else is a
+            # bug and must propagate rather than masquerade as a bad file.
             if isinstance(exc, beets_adapter.DestinationExists):
                 msg = str(exc) or "destination exists"
             elif isinstance(exc, beets_adapter.FileChanged):
