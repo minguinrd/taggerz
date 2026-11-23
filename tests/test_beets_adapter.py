@@ -131,6 +131,7 @@ def test_collision_destination_never_overwritten(cfg, make_track):
                                      expect=None, beets_item_id=None)
     assert dest.read_bytes() == b"EXISTING"
     assert p.exists()
+    assert mediafile.MediaFile(str(p)).title == "T"  # source tags untouched
     assert list(beets_adapter.lib().items()) == []
 
 
@@ -140,6 +141,7 @@ def test_file_changed_rejected(cfg, make_track):
         beets_adapter.apply_approved(p, {"title": "X"}, move_only=False,
                                      expect=(1.0, 2), beets_item_id=None)
     assert p.exists()
+    assert mediafile.MediaFile(str(p)).title == "T"  # rejected before any write
 
 
 def test_write_failure_keeps_original_and_retry_succeeds(cfg, make_track, monkeypatch):

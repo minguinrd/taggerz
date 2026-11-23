@@ -383,10 +383,10 @@ def test_real_trackinfo_item_data_has_candidate_fields(...):
 - Produces: `apply_approved(path: Path, fields: dict | None, *, move_only: bool, expect: tuple[float, int] | None, beets_item_id: int | None) -> tuple[Path, int | None]`
   Sequence (order is load-bearing):
   1. If `expect` given: `path.stat()`; `(st.st_mtime, st.st_size) != expect` → `FileChanged` (no writes). Missing file → `ApplyFailed("file no longer exists")`.
-  2. `item = Item.from_path(path)`; attach `item._db = lib()` and set a truthy `item.id = 1` (verified against beets 2.14.1: `destination()` always reads `self.db.replacements`, and the `Model.db` property runs `_check_db(need_id=True)` — the basedir/path_formats overrides do not avoid it; `lib().add()` reassigns the id on insert). Compute `dest = item.destination(basedir=lib().directory, path_formats=get_path_formats(config["paths"]))` **before any library insert**.
-  3. Collision: `dest != path and dest.exists()` → `DestinationExists` (nothing written, no library row).
-  4. Library sync: if `beets_item_id` resolves via `lib().get_item()` to an item whose `path == path` → copy fresh fields onto it and reuse; else `lib().add(item)`. The id in use is attached to any later exception as `.item_id`.
-  5. If not `move_only` and `fields`: `item.update(fields)`; `item.try_write()` returns falsy → `ApplyFailed("failed to write tags", item_id=…)`.
+  2. `item = Item.from_path(path)`; apply `fields` in-memory first (`item.update(fields)`) when not `move_only` — **then** attach `item._db = lib()` and set a truthy `item.id = 1` (verified against beets 2.14.1: `destination()` always reads `self.db.replacements`, and the `Model.db` property runs `_check_db(need_id=True)` — the basedir/path_formats overrides do not avoid it; `lib().add()` reassigns the id on insert) and compute `dest = item.destination(basedir=lib().directory, path_formats=get_path_formats(config["paths"]))` **before any library insert**. (Corrected during Task 6 review: computing `dest` from the on-disk tags checked the *old* path for collisions while `Item.move()` re-renders the *new* path internally — a silent overwrite hole. Fields must be applied in-memory before the collision check; this touches no disk and no database.)
+  3. Collision: `dest != path and dest.exists()` → `DestinationExists` (nothing written, no library row, source untouched).
+  4. Library sync: if `beets_item_id` resolves via `lib().get_item()` to an item whose `path == path` → reuse it (re-apply `fields` in the next step); else rebuild the item from path with `fields` in-memory and `lib().add(item)`. The id in use is attached to any later exception as `.item_id`.
+  5. If not `move_only` and `fields`: `item.update(fields)` (idempotent; ensures the reused-row path has them too); `item.try_write()` returns falsy → `ApplyFailed("failed to write tags", item_id=…)`.
   6. `if dest != path: item.move()` — `OSError` → `ApplyFailed("failed to move file", item_id=…)`.
   7. Return `(dest, item_id)`.
 
@@ -412,7 +412,7 @@ def test_collision_destination_never_overwritten(cfg, make_track):
         beets_adapter.apply_approved(p, {"title": "T"}, move_only=False,
                                      expect=None, beets_item_id=None)
     assert dest.read_bytes() == b"EXISTING"                      # untouched
-    assert mediafile.MediaFile(str(p)).title is None             # source untouched
+    assert mediafile.MediaFile(str(p)).title == "T"             # source untouched
     assert list(beets_adapter.lib().items()) == []               # no row inserted
 
 def test_file_changed_rejected(cfg, make_track):
@@ -420,7 +420,7 @@ def test_file_changed_rejected(cfg, make_track):
     with pytest.raises(beets_adapter.FileChanged):
         beets_adapter.apply_approved(p, {"title": "X"}, move_only=False,
                                      expect=(1.0, 2), beets_item_id=None)
-    assert mediafile.MediaFile(str(p)).title is None
+    assert mediafile.MediaFile(str(p)).title == "T"   # rejected before any write
 
 def test_write_failure_keeps_original_and_retry_succeeds(cfg, make_track, monkeypatch):
     p = make_track(cfg.music_dir, "w.flac")

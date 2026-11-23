@@ -195,7 +195,6 @@ def apply_approved(path: Path, fields: dict | None, *, move_only: bool,
                   expect: tuple[float, int] | None, beets_item_id: int | None) -> tuple[Path, int | None]:
     """Collision-safe write + organize. Returns (dest, item_id)."""
     from beets import config as beets_config
-    from beets.library import Item
     from beets.util.pathformats import get_path_formats
 
     path = Path(path)
