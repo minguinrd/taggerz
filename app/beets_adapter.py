@@ -13,6 +13,14 @@ from app.config import Config
 
 DEFAULT_TEMPLATE = "$albumartist/$album/$track - $title"
 
+CANDIDATE_FIELDS = (
+    "title", "artist", "album", "albumartist", "track", "disc", "year",
+    "mb_trackid", "mb_albumid",
+)
+
+# Patchable hook for tests.
+tag_item = None
+
 
 class DestinationExists(Exception):
     """Raised when an approve-time destination already exists."""
@@ -128,3 +136,61 @@ def expected_path(path: Path) -> Path:
     if isinstance(dest, (bytes, bytearray)):
         return Path(os.fsdecode(bytes(dest)))
     return Path(dest)
+
+
+def default_acoustid_key() -> str:
+    """Return beets' embedded AcoustID application key."""
+    import beetsplug.chroma
+
+    return beetsplug.chroma.API_KEY
+
+
+def candidates_for(path: Path, ids: list[str]) -> list[dict]:
+    """Generate candidate tag dicts for ``path`` using AcoustID recording ids.
+
+    ``ids`` may be empty/None-ish for text-only search. When an ID search
+    yields nothing, retry once with text search. Returns ``[]`` if no match.
+    """
+    from beets.autotag import Source
+    from beets.library import Item
+
+    tag_item_fn = globals().get("tag_item")
+    if tag_item_fn is None:
+        from beets.autotag.match import tag_item as tag_item_fn
+
+    item = Item.from_path(path)
+    source = Source.from_item(item)
+
+    proposal = None
+    if ids:
+        proposal = tag_item_fn(source, search_ids=ids)
+        if not (proposal and proposal.candidates):
+            # Fall back to text search once.
+            proposal = tag_item_fn(source)
+    else:
+        proposal = tag_item_fn(source)
+
+    if not proposal or not proposal.candidates:
+        return []
+
+    out: list[dict] = []
+    for match in proposal.candidates:
+        info = getattr(match, "info", None)
+        item_data = getattr(info, "item_data", {}) if info is not None else {}
+        if not isinstance(item_data, dict):
+            item_data = dict(item_data) if item_data is not None else {}
+        entry: dict = {
+            field: item_data.get(field) for field in CANDIDATE_FIELDS
+        }
+        dist = getattr(match, "distance", None)
+        distance_val = getattr(dist, "distance", None)
+        if callable(distance_val):
+            distance_val = distance_val()
+        try:
+            entry["score"] = round(1 - float(distance_val), 3)
+        except (TypeError, ValueError):
+            entry["score"] = None
+        rec = getattr(proposal, "recommendation", None)
+        entry["recommendation"] = getattr(rec, "name", str(rec)) if rec is not None else None
+        out.append(entry)
+    return out

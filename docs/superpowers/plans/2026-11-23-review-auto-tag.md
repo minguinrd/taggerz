@@ -316,7 +316,7 @@ Each file: `fields = beets_adapter.read_fields(p)`; on exception → `stats["err
   - `candidates_for(path: Path, ids: list[str]) -> list[dict]` — `item = Item.from_path(path)`; `tag_item(Source.from_item(item), search_ids=ids)` when `ids`, else text-only `tag_item(Source.from_item(item))`; if ID search yields nothing, retry text-only once. Flatten each `TrackMatch`: `{field: match.info.item_data.get(field) for field in CANDIDATE_FIELDS}` plus `"score": round(1 - match.distance.distance, 3)` and `"recommendation": proposal.recommendation.name` on every candidate. Returns `[]` when nothing matches.
   - `default_acoustid_key() -> str` — returns `beetsplug.chroma.API_KEY`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tests/test_fingerprint.py` (monkeypatch `app.fingerprint.acoustid.fingerprint_file` / `.lookup`):
 
@@ -362,13 +362,13 @@ def test_real_trackinfo_item_data_has_candidate_fields(...):
     # year=1999, artist=..., album=..., albumartist=...) .item_data contains every CANDIDATE_FIELD key
 ```
 
-- [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_fingerprint.py tests/test_beets_adapter.py -v` → FAIL `ModuleNotFoundError: No module named 'app.fingerprint'`.
+- [x] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_fingerprint.py tests/test_beets_adapter.py -v` → FAIL `ModuleNotFoundError: No module named 'app.fingerprint'`.
 
-- [ ] **Step 3: Implement `app/fingerprint.py` and adapter `candidates_for`**
+- [x] **Step 3: Implement `app/fingerprint.py` and adapter `candidates_for`**
 
-- [ ] **Step 4: Run to verify pass** — same command → all passed.
+- [x] **Step 4: Run to verify pass** — same command → all passed.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: acoustid fingerprinting and beets candidate generation"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat: acoustid fingerprinting and beets candidate generation"`
 
 ---
 
