@@ -442,3 +442,20 @@ def test_settings_page_shows_configuration(cfg, client):
     assert str(cfg.music_dir).encode() in resp.data
     assert b"$albumartist/$album/$track - $title" in resp.data
     assert b"beets default" in resp.data          # no ACOUSTID_APP_KEY in test env
+
+
+def test_open_path_existing_row_clears_candidates(cfg, make_track, client,
+                                                  monkeypatch):
+    monkeypatch.setattr(worker, "start_job", lambda c, *a, **k: True)
+    cand = {f: "V" for f in beets_adapter.CANDIDATE_FIELDS}
+    p, row = _seed_proposal(cfg, make_track, candidates=[cand])
+    resp = client.post("/open-path", data={"path": str(p)},
+                       follow_redirects=False)
+    assert resp.status_code == 302
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status == "pending"
+    assert prop.kind == "manual"
+    assert prop.candidates == []   # stale candidates cleared, no status force
+    conn.close()

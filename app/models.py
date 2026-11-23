@@ -3,8 +3,23 @@
 from dataclasses import dataclass
 
 # Rescan stickiness depends on these exact strings (global constraint).
-STATUSES = ("pending", "awaiting-review", "done", "skipped", "error")
-KINDS = ("needs-tags", "organize-only", "unidentified", "manual")
+STATUS_PENDING = "pending"
+STATUS_AWAITING_REVIEW = "awaiting-review"
+STATUS_DONE = "done"
+STATUS_SKIPPED = "skipped"
+STATUS_ERROR = "error"
+STATUSES = (
+    STATUS_PENDING, STATUS_AWAITING_REVIEW, STATUS_DONE,
+    STATUS_SKIPPED, STATUS_ERROR,
+)
+
+KIND_NEEDS_TAGS = "needs-tags"
+KIND_ORGANIZE_ONLY = "organize-only"
+KIND_UNIDENTIFIED = "unidentified"
+KIND_MANUAL = "manual"
+KINDS = (
+    KIND_NEEDS_TAGS, KIND_ORGANIZE_ONLY, KIND_UNIDENTIFIED, KIND_MANUAL,
+)
 
 
 @dataclass

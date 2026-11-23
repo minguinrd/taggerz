@@ -10,6 +10,15 @@ from pathlib import Path
 
 from app import beets_adapter, db
 from app.config import Config
+from app.models import (
+    KIND_NEEDS_TAGS,
+    KIND_ORGANIZE_ONLY,
+    STATUS_AWAITING_REVIEW,
+    STATUS_DONE,
+    STATUS_ERROR,
+    STATUS_PENDING,
+    STATUS_SKIPPED,
+)
 
 
 AUDIO_EXTS: set[str] = {
@@ -31,9 +40,9 @@ def missing_core(fields: dict) -> bool:
 
 def classify(fields: dict, actual: Path, expected: Path | None) -> str | None:
     if missing_core(fields):
-        return "needs-tags"
+        return KIND_NEEDS_TAGS
     if expected != actual:
-        return "organize-only"
+        return KIND_ORGANIZE_ONLY
     return None
 
 
@@ -64,9 +73,10 @@ def run(cfg: Config) -> dict:
 
     # Park open rows whose file has vanished.
     for row in db.list_all(conn):
-        if row.status in ("pending", "awaiting-review"):
+        if row.status in (STATUS_PENDING, STATUS_AWAITING_REVIEW):
             if str(row.path) not in audio_strs and not Path(row.path).exists():
-                db.update_status(conn, row.id, "error", error="file no longer exists")
+                db.update_status(conn, row.id, STATUS_ERROR,
+                                 error="file no longer exists")
                 missing_files += 1
 
     for p in audio_paths:
@@ -96,19 +106,20 @@ def run(cfg: Config) -> dict:
             continue
 
         # Existing row: apply stickiness.
-        if row.status in ("skipped", "error", "pending", "awaiting-review"):
+        if row.status in (STATUS_SKIPPED, STATUS_ERROR, STATUS_PENDING,
+                          STATUS_AWAITING_REVIEW):
             # skipped/error stay parked; pending/awaiting stay as-is (unless
             # vanished, handled above).
             continue
-        if row.status == "done":
+        if row.status == STATUS_DONE:
             if (row.mtime, row.size) == (mtime, size):
                 continue
             if kind is None:
-                db.update_status(conn, row.id, "done", mtime=mtime, size=size,
-                                 current_tags=fields)
-            else:
-                db.update_status(conn, row.id, "pending", kind=kind, mtime=mtime,
+                db.update_status(conn, row.id, STATUS_DONE, mtime=mtime,
                                  size=size, current_tags=fields)
+            else:
+                db.update_status(conn, row.id, STATUS_PENDING, kind=kind,
+                                 mtime=mtime, size=size, current_tags=fields)
                 queued += 1
 
     db.update_scan(conn, scan_id, phase="done", status="done", seen=seen,

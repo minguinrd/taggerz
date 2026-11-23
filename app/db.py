@@ -6,7 +6,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from .models import KINDS, STATUSES, Proposal
+from .models import KINDS, STATUS_AWAITING_REVIEW, STATUSES, Proposal
 
 _SCAN_COLUMNS = frozenset({
     "kind", "phase", "seen", "queued", "fingerprinted", "errors", "status",
@@ -163,13 +163,28 @@ def set_candidates(conn: sqlite3.Connection, pid: int,
     """Store candidates and move the proposal to `awaiting-review`."""
     if kind is not None and kind not in KINDS:
         raise ValueError(f"unknown kind: {kind!r}")
-    sets = ["candidates = ?", "status = 'awaiting-review'", "error = NULL"]
+    sets = [
+        "candidates = ?",
+        f"status = '{STATUS_AWAITING_REVIEW}'",
+        "error = NULL",
+    ]
     args: list = [json.dumps(candidates)]
     if kind is not None:
         sets.append("kind = ?")
         args.append(kind)
     args.append(pid)
     conn.execute(f"UPDATE proposals SET {', '.join(sets)} WHERE id = ?", args)
+    conn.commit()
+
+
+def clear_candidates(conn: sqlite3.Connection, pid: int) -> None:
+    """Empty a proposal's candidate list without touching status or error.
+
+    The caller decides the resulting status (open-path re-queues the row as
+    ``pending`` after clearing); unlike ``set_candidates`` this never forces
+    ``awaiting-review``.
+    """
+    conn.execute("UPDATE proposals SET candidates = '[]' WHERE id = ?", (pid,))
     conn.commit()
 
 

@@ -12,6 +12,12 @@ from app import db, scan
 from app.beets_adapter import candidates_for, default_acoustid_key
 from app.config import Config
 from app.fingerprint import AcoustidFailure, recording_ids
+from app.models import (
+    KIND_MANUAL,
+    KIND_UNIDENTIFIED,
+    STATUS_ERROR,
+    STATUS_PENDING,
+)
 
 _lock = threading.Lock()
 
@@ -61,26 +67,37 @@ def run_fingerprint_sync(cfg: Config) -> dict:
         if scan_id is not None:
             db.update_scan(conn, scan_id, phase="fingerprinting",
                            fingerprinted=_fingerprinted, errors=_errors)
-        pending = list(db.list_by_status(conn, ("pending",)))
+        pending = list(db.list_by_status(conn, (STATUS_PENDING,)))
         for prop in pending:
             try:
                 ids = recording_ids(Path(prop.path), acoustid_key)
+                cands = candidates_for(Path(prop.path), ids)
+                if not cands:
+                    if prop.kind == KIND_MANUAL:
+                        db.set_candidates(conn, prop.id, [], kind=None)
+                    else:
+                        db.set_candidates(conn, prop.id, [],
+                                          kind=KIND_UNIDENTIFIED)
+                else:
+                    db.set_candidates(conn, prop.id, cands)
             except AcoustidFailure as exc:
-                db.update_status(conn, prop.id, "error", error=str(exc))
+                db.update_status(conn, prop.id, STATUS_ERROR, error=str(exc))
                 _errors += 1
                 if scan_id is not None:
                     db.update_scan(conn, scan_id, phase="fingerprinting",
                                    fingerprinted=_fingerprinted, errors=_errors)
                 continue
-
-            cands = candidates_for(Path(prop.path), ids)
-            if not cands:
-                if prop.kind == "manual":
-                    db.set_candidates(conn, prop.id, [], kind=None)
-                else:
-                    db.set_candidates(conn, prop.id, [], kind="unidentified")
-            else:
-                db.set_candidates(conn, prop.id, cands)
+            except Exception as exc:
+                # One broken file must not abort the whole pass: park it as
+                # an error and keep going (mirrors scan's per-file handling).
+                traceback.print_exc()
+                db.update_status(conn, prop.id, STATUS_ERROR,
+                                 error=f"{type(exc).__name__}: {exc}")
+                _errors += 1
+                if scan_id is not None:
+                    db.update_scan(conn, scan_id, phase="fingerprinting",
+                                   fingerprinted=_fingerprinted, errors=_errors)
+                continue
 
             _fingerprinted += 1
             if scan_id is not None:

@@ -7,7 +7,18 @@ from flask import Blueprint, abort, current_app, flash, redirect, render_templat
 from app import db, scan
 from app.beets_adapter import read_fields
 from app.config import Config
-from app.models import STATUSES
+from app.models import (
+    KIND_MANUAL,
+    KIND_NEEDS_TAGS,
+    KIND_ORGANIZE_ONLY,
+    KIND_UNIDENTIFIED,
+    STATUS_AWAITING_REVIEW,
+    STATUS_DONE,
+    STATUS_ERROR,
+    STATUS_PENDING,
+    STATUS_SKIPPED,
+    STATUSES,
+)
 from app import worker
 
 bp = Blueprint("web", __name__)
@@ -31,20 +42,20 @@ def group_key(proposal) -> str:
 
 
 def _badge(proposal) -> str:
-    if proposal.status == "pending":
+    if proposal.status == STATUS_PENDING:
         return "fingerprinting…"
-    if proposal.status == "error":
+    if proposal.status == STATUS_ERROR:
         if proposal.error and proposal.error.startswith("destination exists"):
             return "destination exists"
         return "error"
     kind = proposal.kind
-    if kind == "needs-tags":
+    if kind == KIND_NEEDS_TAGS:
         return "needs tags"
-    if kind == "organize-only":
+    if kind == KIND_ORGANIZE_ONLY:
         return "organize only"
-    if kind == "unidentified":
+    if kind == KIND_UNIDENTIFIED:
         return "unidentified"
-    if kind == "manual":
+    if kind == KIND_MANUAL:
         return "manual"
     return kind
 
@@ -58,7 +69,8 @@ def queue_view():
     if requested in STATUSES:
         proposals = db.list_by_status(conn, (requested,))
     else:
-        proposals = db.list_by_status(conn, ("pending", "awaiting-review", "error"))
+        proposals = db.list_by_status(
+            conn, (STATUS_PENDING, STATUS_AWAITING_REVIEW, STATUS_ERROR))
     conn.close()
 
     groups: dict[str, list] = {}
@@ -157,17 +169,15 @@ def open_path():
     existing = db.get_by_path(conn, str(resolved))
     if existing is not None:
         db.update_status(
-            conn, existing.id, "pending", kind="manual",
+            conn, existing.id, STATUS_PENDING, kind=KIND_MANUAL,
             current_tags=tags, mtime=stat.st_mtime, size=stat.st_size,
         )
-        # clear stale candidates
-        conn.execute("UPDATE proposals SET candidates = '[]' WHERE id = ?", (existing.id,))
-        conn.commit()
+        db.clear_candidates(conn, existing.id)
         pid = existing.id
     else:
         prop = db.enqueue(
             conn, path=str(resolved), mtime=stat.st_mtime, size=stat.st_size,
-            kind="manual", current_tags=tags,
+            kind=KIND_MANUAL, current_tags=tags,
         )
         pid = prop.id
     conn.close()
@@ -184,7 +194,7 @@ def _reopen(conn, proposal, cfg) -> None:
     if proposal.candidates:
         db.set_candidates(conn, proposal.id, proposal.candidates)
     else:
-        db.update_status(conn, proposal.id, "pending")
+        db.update_status(conn, proposal.id, STATUS_PENDING)
         worker.start_job(cfg, "fingerprint")
 
 
@@ -225,18 +235,19 @@ def approve(pid):
     kind = proposal.kind
 
     # reject unidentified without edits
-    if kind == "unidentified" and action == "candidate":
+    if kind == KIND_UNIDENTIFIED and action == "candidate":
         conn.close()
         flash("must edit first")
         return redirect(url_for("web.proposal_detail", pid=pid))
 
     # move requires organize-only
-    if action == "move" and kind != "organize-only":
+    if action == "move" and kind != KIND_ORGANIZE_ONLY:
         conn.close()
         flash("move only allowed for organize-only proposals")
         return redirect(url_for("web.proposal_detail", pid=pid))
 
-    expect = (proposal.mtime, proposal.size) if proposal.status == "awaiting-review" else None
+    expect = ((proposal.mtime, proposal.size)
+              if proposal.status == STATUS_AWAITING_REVIEW else None)
 
     move_only = False
     fields = None
@@ -286,14 +297,14 @@ def approve(pid):
             msg = str(exc) or "file changed"
         else:
             msg = str(exc)
-        db.update_status(conn, pid, "error", error=msg)
+        db.update_status(conn, pid, STATUS_ERROR, error=msg)
         if getattr(exc, "item_id", None) is not None:
             db.set_beets_item_id(conn, pid, exc.item_id)
         conn.close()
         flash(msg)
         return redirect(url_for("web.queue_view"))
 
-    db.update_status(conn, pid, "done")
+    db.update_status(conn, pid, STATUS_DONE)
     if item_id is not None:
         db.set_beets_item_id(conn, pid, item_id)
     conn.close()
@@ -306,7 +317,7 @@ def skip(pid):
     cfg = _cfg()
     conn = db.connect(cfg.db_path)
     db.init_db(conn)
-    db.update_status(conn, pid, "skipped")
+    db.update_status(conn, pid, STATUS_SKIPPED)
     conn.close()
     flash("proposal skipped")
     return redirect(url_for("web.queue_view"))
@@ -340,7 +351,7 @@ def identify(pid):
     conn = db.connect(cfg.db_path)
     db.init_db(conn)
     db.set_candidates(conn, pid, [])
-    db.update_status(conn, pid, "pending")
+    db.update_status(conn, pid, STATUS_PENDING)
     conn.close()
     worker.start_job(cfg, "fingerprint")
     return redirect(url_for("web.queue_view"))
@@ -357,15 +368,15 @@ def bulk_approve():
 
     beets_adapter.ensure_setup(cfg)
 
-    proposals = db.list_by_status(conn, ("awaiting-review",))
+    proposals = db.list_by_status(conn, (STATUS_AWAITING_REVIEW,))
     group_props = [p for p in proposals if group_key(p) == album_key]
 
     approved = 0
     failed = 0
     for p in group_props:
-        if p.kind == "unidentified":
+        if p.kind == KIND_UNIDENTIFIED:
             continue
-        if p.kind == "organize-only":
+        if p.kind == KIND_ORGANIZE_ONLY:
             fields = None
             move_only = True
         else:
@@ -375,13 +386,13 @@ def bulk_approve():
             fields = {f: cand.get(f) for f in beets_adapter.CANDIDATE_FIELDS}
             move_only = False
 
-        expect = (p.mtime, p.size) if p.status == "awaiting-review" else None
+        expect = (p.mtime, p.size) if p.status == STATUS_AWAITING_REVIEW else None
         try:
             dest, item_id = beets_adapter.apply_approved(
                 Path(p.path), fields, move_only=move_only,
                 expect=expect, beets_item_id=p.beets_item_id,
             )
-            db.update_status(conn, p.id, "done")
+            db.update_status(conn, p.id, STATUS_DONE)
             if item_id is not None:
                 db.set_beets_item_id(conn, p.id, item_id)
             approved += 1
@@ -395,7 +406,7 @@ def bulk_approve():
                 msg = str(exc) or "file changed"
             else:
                 msg = str(exc)
-            db.update_status(conn, p.id, "error", error=msg)
+            db.update_status(conn, p.id, STATUS_ERROR, error=msg)
             if getattr(exc, "item_id", None) is not None:
                 db.set_beets_item_id(conn, p.id, exc.item_id)
             failed += 1

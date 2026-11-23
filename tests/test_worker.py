@@ -182,3 +182,36 @@ def test_fingerprint_persists_fingerprinting_phase(cfg, monkeypatch):
     worker.run_fingerprint_sync(cfg)
     assert any(c.get("phase") == "fingerprinting" for c in calls)
     assert any(c.get("phase") == "done" for c in calls)
+
+
+def test_unexpected_error_parks_file_and_continues(cfg, monkeypatch):
+    # a non-AcoustID failure (e.g. a beets bug) on one file must park THAT
+    # file as error and keep processing the rest of the pass
+    conn = _conn(cfg)
+    db.enqueue(conn, path="/m/a.flac", mtime=1.0, size=1, kind="needs-tags",
+               current_tags={})
+    db.enqueue(conn, path="/m/b.flac", mtime=1.0, size=1, kind="needs-tags",
+               current_tags={})
+    db.start_scan(conn, kind="scan")
+    conn.close()
+
+    monkeypatch.setattr(worker, "recording_ids", lambda p, key: ["rid"])
+    calls = []
+
+    def flaky(path, ids):
+        calls.append(str(path))
+        if len(calls) == 1:
+            raise KeyError("boom")
+        return [{"title": "T"}]
+
+    monkeypatch.setattr(worker, "candidates_for", flaky)
+    worker.run_fingerprint_sync(cfg)
+
+    conn = _conn(cfg)
+    a = db.get_by_path(conn, "/m/a.flac")
+    b = db.get_by_path(conn, "/m/b.flac")
+    assert a.status == "error" and "KeyError" in a.error
+    assert b.status == "awaiting-review" and b.candidates[0]["title"] == "T"
+    # the pass still completes: scan row not left mid-flight
+    assert db.latest_scan(conn)["phase"] == "done"
+    conn.close()
