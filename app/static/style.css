@@ -1,0 +1,10 @@
+body { font-family: system-ui, sans-serif; margin: 1rem; }
+nav a { margin-right: 1rem; }
+.badge { font-size: 0.85rem; padding: 0.1rem 0.4rem; border-radius: 4px; background: #eee; }
+.flashes { color: #900; }
+table { border-collapse: collapse; width: 100%; }
+td { border-bottom: 1px solid #ddd; padding: 0.25rem; }
+@media (prefers-color-scheme: dark) {
+  body { background: #111; color: #eee; }
+  .badge { background: #333; }
+}

@@ -4,6 +4,7 @@ import shutil
 import pytest
 
 from app import beets_adapter
+from app import create_app
 from app.config import Config
 
 
@@ -50,3 +51,19 @@ def make_track():
         return dest
 
     return _make
+
+
+@pytest.fixture
+def client(cfg):
+    app = create_app(cfg)
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c
+
+
+@pytest.fixture
+def client_with_seeded_queue(cfg):
+    app = create_app(cfg)
+    app.config["TESTING"] = True
+    with app.test_client() as c:
+        yield c

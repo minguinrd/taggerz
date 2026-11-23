@@ -525,7 +525,7 @@ DB connections opened inside each function (`db.connect(cfg.db_path)`), never sh
   - `POST /open-path` — form field `path`: must resolve inside `cfg.music_dir`, exist, and have an audio ext (else flash error, redirect back). Enqueue: existing row → reset to `pending`, kind `manual`; new row → kind `manual`, status `pending`, current_tags from `read_fields`. Then `worker.start_job(cfg, "fingerprint")` — busy → flash "queued; will be identified by the running job". Redirect to `/proposal/<id>`.
   - `app/static/app.js` — polls `/api/status` every 2 s while `running`, updates the progress line, stops when idle.
 
-- [ ] **Step 1: Write the failing tests** — `tests/test_web.py`:
+- [x] **Step 1: Write the failing tests** — `tests/test_web.py`:
 
 ```python
 def test_queue_lists_proposals_with_badges(cfg, make_track, client_with_seeded_queue): ...
@@ -546,15 +546,15 @@ def test_open_path_non_audio_rejected(...):   # ".txt" → flash error
 def test_static_assets_served(...):           # GET /static/app.js → 200
 ```
 
-- [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_web.py -v` → FAIL (`create_app` not importable / no routes).
+- [x] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_web.py -v` → FAIL (`create_app` not importable / no routes).
 
-- [ ] **Step 3: Implement `create_app`, `app/web.py`, templates**
+- [x] **Step 3: Implement `create_app`, `app/web.py`, templates**
 
 `client_with_seeded_queue` fixture in `tests/conftest.py`: builds app with tmp cfg, seeds rows via `db.*`. Jinja `group_key` passed pre-computed from a small helper in `web.py` (keep templates dumb).
 
-- [ ] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_web.py -v` → all passed.
+- [x] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_web.py -v` → all passed.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: queue page with scan control and status polling"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat: queue page with scan control and status polling"`
 
 ---
 
