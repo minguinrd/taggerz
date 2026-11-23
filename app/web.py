@@ -91,16 +91,11 @@ def scan_post():
 def open_path():
     cfg = _cfg()
     raw = request.form.get("path", "").strip()
-    music_dir = cfg.music_dir.resolve()
-    candidate = Path(raw).expanduser()
-    try:
-        resolved = candidate.resolve() if candidate.exists() else candidate.resolve(strict=False)
-    except Exception:
-        resolved = candidate
-    # validate
     if not raw:
         flash("path is required")
         return redirect(url_for("web.queue_view"))
+    music_dir = cfg.music_dir.resolve()
+    candidate = Path(raw).expanduser()
     if not candidate.exists():
         flash("file does not exist")
         return redirect(url_for("web.queue_view"))
