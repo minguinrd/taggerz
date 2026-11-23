@@ -658,7 +658,7 @@ Finish `style.css` (readable table-ish queue, visible focus states, badges with 
 **Interfaces:**
 - Produces: `run.py` — `cfg = load_config(); app = create_app(cfg); waitress.serve(app, host=cfg.host, port=cfg.port)`.
 
-- [ ] **Step 1: Write `run.py`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`**
+- [x] **Step 1: Write `run.py`, `Dockerfile`, `docker-compose.yml`, `.dockerignore`**
 
 ```dockerfile
 FROM python:3.12-slim
@@ -691,12 +691,12 @@ volumes:
 `.dockerignore`: `.venv`, `tests`, `docs`, `music`, `__pycache__`, `.git`.
 (Note: `chromaprint-tools` provides `fpcalc`; `ffmpeg` supplies decode support per spec. Root user in container is an explicit v1 call — personal localhost tool; README documents it.)
 
-- [ ] **Step 2: Build the image**
+- [x] **Step 2: Build the image**
 
 Run: `docker build -t taggerz .`
 Expected: completes without error; `docker run --rm taggerz python -c "import acoustid, flask, waitress; import beets; print(beets.__version__)"` → `2.14.1`.
 
-- [ ] **Step 3: End-to-end smoke test against a sample tree**
+- [x] **Step 3: End-to-end smoke test against a sample tree**
 
 ```bash
 docker compose down -v          # fresh state for a deterministic smoke run
@@ -718,19 +718,19 @@ docker compose down -v && rm -rf music
 ```
 Expected: `E2E OK`; file landed at the template path with written tags; queue page and status endpoint worked. (If AcoustID is reachable and returns a match for the file, approve via `action=candidate` instead — either path proves the flow.)
 
-- [ ] **Step 4: Write `README.md`**
+- [x] **Step 4: Write `README.md`**
 
 Cover: what it does (scan → review → approve → organize), quick start (`docker compose up`, open `http://localhost:8080`), the review flow with a text sketch of the queue, configuration (`MUSIC_DIR`, `DATA_DIR`, `PORT`, optional `ACOUSTID_APP_KEY` — explain the default key and that registration is only needed for future fingerprint submission), editing the path template in `taggerz-data`'s `config.yaml` + restart, safety guarantees (no writes without approve, never overwrites, never deletes), and development commands (`uv` setup, `.venv/bin/pytest`).
 
-- [ ] **Step 5: Update `AGENTS.md` with verified commands**
+- [x] **Step 5: Update `AGENTS.md` with verified commands**
 
 Replace TBD sections with facts only: project name/purpose, `.venv/bin/pytest` (tests), `docker build -t taggerz .`, `docker compose up`, fixture regeneration script, and gotchas (beets pinned at 2.14.1; beets imports only in `app/beets_adapter.py`; fixtures need ffmpeg only to regenerate).
 
-- [ ] **Step 6: Full verification**
+- [x] **Step 6: Full verification**
 
 Run: `.venv/bin/pytest -v`
 Expected: all passed.
 Run: `docker compose up -d --build && curl -fsS http://127.0.0.1:8080/ >/dev/null && docker compose down -v`
 Expected: clean start and shutdown.
 
-- [ ] **Step 7: Commit** — `git add -A && git commit -m "feat: docker packaging, readme, and e2e smoke"`
+- [x] **Step 7: Commit** — `git add -A && git commit -m "feat: docker packaging, readme, and e2e smoke"`

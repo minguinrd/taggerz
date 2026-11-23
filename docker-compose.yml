@@ -1,0 +1,12 @@
+# docker-compose.yml
+services:
+  taggerz:
+    build: .
+    ports: ["127.0.0.1:8080:8080"]
+    volumes:
+      - ./music:/music
+      - taggerz-data:/data
+    environment:
+      ACOUSTID_APP_KEY: "${ACOUSTID_APP_KEY:-}"
+volumes:
+  taggerz-data:
