@@ -12,7 +12,6 @@ from app import beets_adapter, db
 from app.config import Config
 
 
-
 AUDIO_EXTS: set[str] = {
     ".mp3", ".flac", ".m4a", ".mp4", ".ogg", ".opus", ".wav", ".wma",
     ".aiff", ".aif", ".ape", ".wv",

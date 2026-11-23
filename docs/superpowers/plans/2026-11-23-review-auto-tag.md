@@ -251,7 +251,7 @@ Note on `expected_path`: construct via `Item.from_path`, call `destination()` â€
 ```python
 def _seed_tree(cfg, make_track):
     make_track(cfg.music_dir, "untagged.flac")                                   # no tags
-    make_track(cfg.music_dir, "good/Artist/Album/01 - Song.flac",
+    make_track(cfg.music_dir, "Artist/Album/01 - Song.flac",
                title="Song", artist="Artist", album="Album", albumartist="Artist", track=1)
     make_track(cfg.music_dir, "loose.flac",
                title="Song2", artist="Artist2", album="Album2", albumartist="Artist2", track=2)
@@ -263,7 +263,7 @@ def test_scan_classifies_and_enqueues(cfg, make_track):
     assert stats["seen"] == 3 and stats["queued"] == 2
     assert db.get_by_path(conn, ".../untagged.flac").kind == "needs-tags"
     assert db.get_by_path(conn, ".../loose.flac").kind == "organize-only"
-    assert db.get_by_path(conn, ".../good/.../01 - Song.flac") is None   # complete + in place
+    assert db.get_by_path(conn, ".../Artist/Album/01 - Song.flac") is None   # complete + in place
     assert db.get_by_path(conn, ".../notes.txt") is None
 
 def test_rescan_preserves_decisions(cfg, make_track): ...
