@@ -32,3 +32,4 @@
 - Docker base image package for fpcalc is `libchromaprint-tools` (not `chromaprint-tools` on Debian trixie).
 - Network (AcoustID/MusicBrainz) is always mocked in pytest; tests pass offline.
 - `.dockerignore` excludes tests/docs/music/.venv/.git.
+- Changing the compose `user:` directive after the `taggerz-data` volume exists requires chowning the volume to that uid/gid (see README Troubleshooting); `create_app` probes `/data` writability at boot and fails fast with the instruction.
