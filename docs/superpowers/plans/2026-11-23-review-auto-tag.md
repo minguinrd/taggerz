@@ -390,7 +390,7 @@ def test_real_trackinfo_item_data_has_candidate_fields(...):
   6. `if dest != path: item.move()` — `OSError` → `ApplyFailed("failed to move file", item_id=…)`.
   7. Return `(dest, item_id)`.
 
-- [ ] **Step 1: Write the failing tests** (real beets, tmp library; read tags back with `mediafile.MediaFile`):
+- [x] **Step 1: Write the failing tests** (real beets, tmp library; read tags back with `mediafile.MediaFile`):
 
 ```python
 def test_happy_path_writes_tags_and_moves(cfg, make_track):
@@ -450,13 +450,13 @@ def test_move_only_leaves_tags_untouched(cfg, make_track):
 def test_expect_match_proceeds(cfg, make_track): ...  # expect == actual stat → success
 ```
 
-- [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_beets_adapter.py -v` → FAIL (`apply_approved` not defined).
+- [x] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_beets_adapter.py -v` → FAIL (`apply_approved` not defined).
 
-- [ ] **Step 3: Implement `apply_approved`** exactly in the sequence above.
+- [x] **Step 3: Implement `apply_approved`** exactly in the sequence above.
 
-- [ ] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_beets_adapter.py -v` → all passed.
+- [x] **Step 4: Run to verify pass** — `.venv/bin/pytest tests/test_beets_adapter.py -v` → all passed.
 
-- [ ] **Step 5: Commit** — `git add -A && git commit -m "feat: collision-safe apply that writes then moves"`
+- [x] **Step 5: Commit** — `git add -A && git commit -m "feat: collision-safe apply that writes then moves"`
 
 ---
 

@@ -1,3 +1,6 @@
+import mediafile
+import pytest
+
 from app import beets_adapter
 
 
@@ -6,10 +9,12 @@ def test_ensure_setup_writes_config_yaml(cfg):
     text = (cfg.data_dir / "config.yaml").read_text()
     assert "directory:" in text and beets_adapter.DEFAULT_TEMPLATE in text
 
+
 def test_ensure_setup_is_idempotent(cfg):
     beets_adapter.ensure_setup(cfg); first = beets_adapter.lib()
     beets_adapter.ensure_setup(cfg)
     assert beets_adapter.lib() is first
+
 
 def test_read_fields_returns_tag_values(cfg, make_track):
     p = make_track(cfg.music_dir, "t.flac", title="Hello", artist="A", album="B",
@@ -18,9 +23,11 @@ def test_read_fields_returns_tag_values(cfg, make_track):
         "title": "Hello", "artist": "A", "album": "B", "albumartist": "A",
         "track": 1, "disc": 1, "year": 2001}
 
+
 def test_read_fields_untagged_is_all_none(cfg, make_track):
     p = make_track(cfg.music_dir, "u.flac")
     assert all(v is None for v in beets_adapter.read_fields(p).values())
+
 
 def test_expected_path_follows_template(cfg, make_track):
     p = make_track(cfg.music_dir, "x.flac", title="Test Title", artist="Test Artist",
@@ -37,9 +44,9 @@ def test_candidates_for_flattens_track_match(cfg, make_track, monkeypatch):
     p = make_track(cfg.music_dir, "c.flac")
     match = SimpleNamespace(
         info=SimpleNamespace(item_data={"title": "T", "artist": "A", "album": "B",
-                                        "albumartist": "A", "track": 3, "disc": 1,
-                                        "year": 1999, "mb_trackid": "mt",
-                                        "mb_albumid": "ma"}),
+                                       "albumartist": "A", "track": 3, "disc": 1,
+                                       "year": 1999, "mb_trackid": "mt",
+                                       "mb_albumid": "ma"}),
         distance=SimpleNamespace(distance=0.06))
     proposal = SimpleNamespace(candidates=[match],
                                recommendation=beets_autotag.Recommendation.strong)
@@ -100,3 +107,95 @@ def test_real_trackinfo_item_data_has_candidate_fields():
     assert data["track"] == 3
     assert data["disc"] == 1
     assert data["year"] == 1999
+
+
+def test_happy_path_writes_tags_and_moves(cfg, make_track):
+    p = make_track(cfg.music_dir, "old.flac", title="Old")
+    dest, item_id = beets_adapter.apply_approved(
+        p, {"title": "New", "artist": "A", "album": "B", "albumartist": "A",
+            "track": 1, "disc": 1, "year": 2000},
+        move_only=False, expect=None, beets_item_id=None)
+    assert dest == cfg.music_dir / "A" / "B" / "01 - New.flac" and dest.exists()
+    assert mediafile.MediaFile(str(dest)).title == "New"
+    assert len(list(beets_adapter.lib().items())) == 1
+
+
+def test_collision_destination_never_overwritten(cfg, make_track):
+    p = make_track(cfg.music_dir, "a.flac", title="T", artist="A", album="B",
+                   albumartist="A", track=1)
+    dest = cfg.music_dir / "A" / "B" / "01 - T.flac"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(b"EXISTING")
+    with pytest.raises(beets_adapter.DestinationExists):
+        beets_adapter.apply_approved(p, {"title": "T"}, move_only=False,
+                                     expect=None, beets_item_id=None)
+    assert dest.read_bytes() == b"EXISTING"
+    assert p.exists()
+    assert list(beets_adapter.lib().items()) == []
+
+
+def test_file_changed_rejected(cfg, make_track):
+    p = make_track(cfg.music_dir, "c.flac", title="T")
+    with pytest.raises(beets_adapter.FileChanged):
+        beets_adapter.apply_approved(p, {"title": "X"}, move_only=False,
+                                     expect=(1.0, 2), beets_item_id=None)
+    assert p.exists()
+
+
+def test_write_failure_keeps_original_and_retry_succeeds(cfg, make_track, monkeypatch):
+    p = make_track(cfg.music_dir, "w.flac")
+    monkeypatch.setattr(beets_adapter.Item, "try_write", lambda self, *a, **k: False)
+    with pytest.raises(beets_adapter.ApplyFailed) as exc:
+        beets_adapter.apply_approved(p, {"title": "New"}, move_only=False,
+                                     expect=None, beets_item_id=None)
+    assert exc.value.item_id is not None
+    assert p.exists() and mediafile.MediaFile(str(p)).title is None
+    monkeypatch.undo()
+    dest, item_id = beets_adapter.apply_approved(p, {"title": "New"}, move_only=False,
+                                                 expect=None, beets_item_id=exc.value.item_id)
+    assert dest.exists() and len(list(beets_adapter.lib().items())) == 1
+
+
+def test_move_failure_retry_single_row(cfg, make_track, monkeypatch):
+    p = make_track(cfg.music_dir, "mv.flac", title="Keep", artist="A", album="B",
+                   albumartist="A", track=1)
+    calls = {"n": 0}
+
+    original_move = beets_adapter.Item.move
+
+    def fake_move(self, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("boom")
+        return original_move(self, *a, **k)
+
+    monkeypatch.setattr(beets_adapter.Item, "move", fake_move)
+    fields = {"title": "New", "artist": "A", "album": "B", "albumartist": "A", "track": 1}
+    with pytest.raises(beets_adapter.ApplyFailed) as exc:
+        beets_adapter.apply_approved(p, fields, move_only=False,
+                                     expect=None, beets_item_id=None)
+    assert exc.value.item_id is not None
+    assert p.exists()
+    assert mediafile.MediaFile(str(p)).title == "New"
+    dest, item_id = beets_adapter.apply_approved(p, fields, move_only=False,
+                                                 expect=None, beets_item_id=exc.value.item_id)
+    assert dest.exists()
+    assert len(list(beets_adapter.lib().items())) == 1
+
+
+def test_move_only_leaves_tags_untouched(cfg, make_track):
+    p = make_track(cfg.music_dir, "m.flac", title="Keep", artist="A", album="B",
+                   albumartist="A", track=1)
+    dest, _ = beets_adapter.apply_approved(p, None, move_only=True,
+                                           expect=None, beets_item_id=None)
+    assert dest.exists() and mediafile.MediaFile(str(dest)).title == "Keep"
+
+
+def test_expect_match_proceeds(cfg, make_track):
+    p = make_track(cfg.music_dir, "e.flac", title="T", artist="A", album="B",
+                   albumartist="A", track=1)
+    st = p.stat()
+    dest, _ = beets_adapter.apply_approved(p, None, move_only=True,
+                                           expect=(st.st_mtime, st.st_size),
+                                           beets_item_id=None)
+    assert dest.exists()

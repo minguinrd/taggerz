@@ -9,6 +9,7 @@ from pathlib import Path
 
 import yaml
 from beets.autotag.match import tag_item
+from beets.library import Item
 
 from app.config import Config
 
@@ -188,3 +189,80 @@ def candidates_for(path: Path, ids: list[str]) -> list[dict]:
         entry["recommendation"] = getattr(rec, "name", str(rec)) if rec is not None else None
         out.append(entry)
     return out
+
+
+def apply_approved(path: Path, fields: dict | None, *, move_only: bool,
+                  expect: tuple[float, int] | None, beets_item_id: int | None) -> tuple[Path, int | None]:
+    """Collision-safe write + organize. Returns (dest, item_id)."""
+    from beets import config as beets_config
+    from beets.library import Item
+    from beets.util.pathformats import get_path_formats
+
+    path = Path(path)
+
+    # 1. Expect check.
+    if expect is not None:
+        try:
+            st = path.stat()
+        except FileNotFoundError:
+            raise ApplyFailed("file no longer exists")
+        if (st.st_mtime, st.st_size) != expect:
+            raise FileChanged()
+
+    # 2. Detached item + precompute destination BEFORE any library insert.
+    # Apply approved fields in-memory first so the destination reflects the
+    # approved (new) tags rather than the on-disk originals.
+    item = Item.from_path(path)
+    if (not move_only) and fields:
+        item.update(fields)
+    item._db = lib()
+    item.id = 1
+    dest = item.destination(
+        basedir=lib().directory,
+        path_formats=get_path_formats(beets_config["paths"]),
+    )
+    if isinstance(dest, (bytes, bytearray)):
+        dest = Path(os.fsdecode(bytes(dest)))
+    else:
+        dest = Path(dest)
+
+    # 3. Collision check (before any write / library row).
+    if dest != path and dest.exists():
+        raise DestinationExists()
+
+    # 4. Library sync.
+    reused = None
+    if beets_item_id is not None:
+        existing = lib().get_item(beets_item_id)
+        if existing is not None:
+            try:
+                existing_path = Path(os.fsdecode(bytes(existing.path))) if isinstance(existing.path, (bytes, bytearray)) else Path(existing.path)
+            except Exception:
+                existing_path = Path(existing.path)
+            if existing_path == path:
+                reused = existing
+    if reused is not None:
+        item = reused
+    else:
+        item = Item.from_path(path)
+        if (not move_only) and fields:
+            item.update(fields)
+        item._db = lib()
+        item.id = 1
+        lib().add(item)
+
+    # 5. Tag write (unless move-only).
+    if (not move_only) and fields:
+        item.update(fields)
+        if not item.try_write():
+            raise ApplyFailed("failed to write tags", item_id=item.id)
+
+    # 6. Move.
+    if dest != path:
+        try:
+            item.move()
+        except OSError:
+            raise ApplyFailed("failed to move file", item_id=item.id)
+
+    # 7. Return.
+    return (dest, getattr(item, "id", None))
