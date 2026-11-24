@@ -91,7 +91,8 @@ def test_status_endpoint_shape(cfg, client):
     assert resp.status_code == 200
     data = resp.get_json()
     assert set(data.keys()) == {"running", "phase", "seen", "queued",
-                               "fingerprinted", "errors", "message", "last_scan"}
+                               "fingerprinted", "errors", "message",
+                               "last_scan", "activity"}
 
 
 def test_scan_post_starts_job(cfg, client, monkeypatch):
@@ -509,3 +510,9 @@ def test_queue_bulk_approve_button_renders_decodable_key(cfg, make_track,
     assert b'name="album_key" value="A &#124; B"' in resp.data
     assert b"Approve 2" in resp.data
     assert resp.data.count(b"A | B") == 1
+
+
+def test_base_renders_confirm_dialog_and_toast_region(cfg, client):
+    resp = client.get("/")
+    assert b"<dialog" in resp.data          # custom confirm popup markup
+    assert b'id="toasts"' in resp.data      # toast container (flashes land here)

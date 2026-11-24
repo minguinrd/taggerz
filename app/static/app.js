@@ -1,58 +1,252 @@
 (function () {
-  const progress = document.getElementById("progress");
-  const PHASE = { scanning: "Scanning", fingerprinting: "Fingerprinting", done: "Done", error: "Error" };
+  "use strict";
+
+  /* ---------------- toasts (notifications) ---------------- */
+
+  function dismissToast(el) {
+    el.classList.add("toast-out");
+    setTimeout(function () { el.remove(); }, 220);
+  }
+
+  document.querySelectorAll("#toasts .flash").forEach(function (el, i) {
+    var isError = el.classList.contains("error");
+    var close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast-close";
+    close.setAttribute("aria-label", "Dismiss notification");
+    close.innerHTML =
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+    close.addEventListener("click", function () { dismissToast(el); });
+    el.appendChild(close);
+    // stagger entry; success messages auto-dismiss (errors wait for the user)
+    setTimeout(function () { el.classList.add("toast-in"); }, 40 * i);
+    if (!isError) {
+      setTimeout(function () { dismissToast(el); }, 4500 + 400 * i);
+    }
+  });
+
+  /* ---------------- confirm popup ---------------- */
+
+  var dlg = document.getElementById("confirm-dialog");
+  var dlgMsg = document.getElementById("confirm-msg");
+  var pendingForm = null;
+  var pendingSubmitter = null;
+
+  function beginLoading(form, submitter) {
+    var btn = submitter || form.querySelector('button[type="submit"], button:not([type])');
+    if (!btn || btn.disabled) return;
+    var label = btn.textContent;
+    btn.disabled = true;
+    btn.classList.add("is-loading");
+    btn.textContent = "Working…";
+    setTimeout(function () {
+      btn.disabled = false;
+      btn.classList.remove("is-loading");
+      btn.textContent = label;
+    }, 4000);
+  }
+
+  document.addEventListener("submit", function (e) {
+    var form = e.target;
+
+    // second pass after the popup confirmed — proceed with loading state
+    if (form.dataset.confirmed) {
+      delete form.dataset.confirmed;
+      beginLoading(form, e.submitter);
+      return;
+    }
+
+    var msg = form.getAttribute("data-confirm");
+    if (msg && dlg && typeof dlg.showModal === "function") {
+      e.preventDefault();
+      pendingForm = form;
+      pendingSubmitter = e.submitter || null;
+      dlgMsg.textContent = msg;
+      dlg.returnValue = "";
+      dlg.showModal();
+      return;
+    }
+    if (msg && !window.confirm(msg)) {
+      e.preventDefault();
+      return;
+    }
+    beginLoading(form, e.submitter);
+  }, true);
+
+  if (dlg) {
+    dlg.addEventListener("close", function () {
+      if (dlg.returnValue === "confirm" && pendingForm) {
+        pendingForm.dataset.confirmed = "1";
+        pendingForm.requestSubmit(pendingSubmitter);
+      } else if (pendingSubmitter && pendingSubmitter.focus) {
+        pendingSubmitter.focus();
+      }
+      pendingForm = null;
+      pendingSubmitter = null;
+    });
+    dlg.addEventListener("click", function (e) {
+      if (e.target === dlg) dlg.close("cancel"); // backdrop click cancels
+    });
+  }
+
+  /* ---------------- activity dock ---------------- */
+
+  var dock = document.getElementById("dock");
+  var pill = document.getElementById("dock-pill");
+  var panel = document.getElementById("dock-panel");
+  var dockText = document.getElementById("dock-text");
+  var dockCount = document.getElementById("dock-count");
+  var currentEl = document.getElementById("dock-current");
+  var recentEl = document.getElementById("dock-recent");
+  var emptyEl = document.getElementById("dock-empty");
+  var liveEl = document.getElementById("live-status");
+
+  var LABELS = {
+    scan: "Scanning",
+    fingerprint: "Fingerprinting",
+    approve: "Approving",
+    move: "Moving",
+    scanning: "Scanning",
+    fingerprinting: "Fingerprinting",
+    done: "Done",
+    error: "Failed"
+  };
+
+  function label(op) { return LABELS[op] || op || ""; }
+
+  function baseName(p) {
+    if (!p) return "";
+    var parts = p.split("/");
+    return parts[parts.length - 1] || p;
+  }
+
+  function fmtTime(epoch) {
+    var d = new Date(epoch * 1000);
+    return d.toTimeString().slice(0, 8);
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+
+  var expanded = false;
+  pill.addEventListener("click", function () {
+    expanded = !expanded;
+    pill.setAttribute("aria-expanded", String(expanded));
+    panel.hidden = !expanded;
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && expanded && dlg && !dlg.open) {
+      expanded = false;
+      pill.setAttribute("aria-expanded", "false");
+      panel.hidden = true;
+      pill.focus();
+    }
+  });
+
+  var lastPhase = null;
+  var wasRunning = false;
+
+  function render(data) {
+    var act = data.activity || { current: null, recent: [] };
+    var hasAny = data.running || act.current || act.recent.length > 0 ||
+                 data.phase === "error";
+    dock.hidden = !hasAny;
+    pill.setAttribute("aria-busy", data.running ? "true" : "false");
+    dock.classList.toggle("is-error", data.phase === "error");
+
+    // pill text: current file first, then phase + counts
+    if (data.phase === "error") {
+      dockText.textContent = "Failed: " + (data.message || "unknown error");
+      dockCount.textContent = "";
+    } else if (act.current) {
+      dockText.textContent = label(act.current.op) + " · " + baseName(act.current.path);
+      dockCount.textContent = data.running
+        ? data.fingerprinted + "/" + data.queued
+        : "";
+    } else if (data.running) {
+      dockText.textContent = label(data.phase) + "…";
+      dockCount.textContent = data.fingerprinted + "/" + data.queued;
+    } else {
+      dockText.textContent = "Recent activity";
+      dockCount.textContent = "";
+    }
+
+    // current operation panel row
+    currentEl.textContent = "";
+    if (act.current) {
+      currentEl.hidden = false;
+      var spin = el("span", "dock-spin small");
+      spin.setAttribute("aria-hidden", "true");
+      currentEl.appendChild(spin);
+      currentEl.appendChild(el("b", null, label(act.current.op)));
+      var cp = el("span", "act-path", act.current.path || "");
+      cp.title = act.current.path || "";
+      currentEl.appendChild(cp);
+      if (act.current.duration != null) {
+        currentEl.appendChild(el("span", "act-dur", act.current.duration + "s"));
+      }
+    } else {
+      currentEl.hidden = true;
+    }
+
+    // recent list (newest first, cap display at 15)
+    recentEl.textContent = "";
+    var recent = (act.recent || []).slice(0, 15);
+    emptyEl.hidden = recent.length > 0 || !!act.current;
+    recent.forEach(function (ev) {
+      var li = el("li", ev.ok ? "act-ok" : "act-fail");
+      li.appendChild(el("span", "act-time", fmtTime(ev.at)));
+      li.appendChild(el("span", "act-op", label(ev.op)));
+      var p = el("span", "act-path", ev.path || "");
+      p.title = ev.path || "";
+      li.appendChild(p);
+      li.appendChild(el("span", "act-status", ev.ok ? "done" : "failed"));
+      if (ev.detail) {
+        var d = el("span", "act-detail", ev.detail);
+        d.title = ev.detail;
+        li.appendChild(d);
+      }
+      recentEl.appendChild(li);
+    });
+
+    // contextual atomic announcements on phase transitions only
+    if (data.phase !== lastPhase) {
+      var msg = "";
+      if (data.phase === "scanning") msg = "Scan started";
+      else if (data.phase === "fingerprinting") {
+        msg = "Fingerprinting started, " + data.queued + " files queued";
+      } else if (data.phase === "done") {
+        msg = "Scan complete: " + data.fingerprinted + " fingerprinted, " +
+              data.errors + " errors";
+      } else if (data.phase === "error") {
+        msg = "Job failed: " + (data.message || "unknown error");
+      }
+      if (msg) liveEl.textContent = msg;
+      lastPhase = data.phase;
+    }
+  }
 
   async function tick() {
     try {
-      const res = await fetch("/api/status");
-      const data = await res.json();
-      if (progress) {
-        const failed = data.phase === "error";
-        progress.classList.toggle("is-error", failed);
-        if (failed) {
-          progress.textContent = "Job failed: " + (data.message || "unknown error");
-        } else if (data.running) {
-          const phase = PHASE[data.phase] || data.phase;
-          progress.textContent =
-            phase + " — " + data.seen + " seen · " + data.queued + " queued · " +
-            data.fingerprinted + " fingerprinted" +
-            (data.errors ? " · " + data.errors + " errors" : "");
-        } else {
-          progress.textContent = "";
-        }
+      var res = await fetch("/api/status");
+      var data = await res.json();
+      render(data);
+      if (data.running) {
+        wasRunning = true;
+        setTimeout(tick, 1500);
+      } else if (wasRunning) {
+        // one final sweep after a job ends to capture completion state
+        wasRunning = false;
+        setTimeout(tick, 2500);
       }
-      if (data.running) setTimeout(tick, 2000);
-      else if (data.phase === "error") setTimeout(tick, 5000);
     } catch (e) {
-      if (progress) progress.textContent = "status unavailable";
+      dockText.textContent = "status unavailable";
+      dock.hidden = false;
     }
   }
   tick();
-
-  // Consequential actions (approve/bulk) ask first; all forms give
-  // submit feedback by disabling the button while the request is in flight.
-  document.addEventListener(
-    "submit",
-    function (e) {
-      const form = e.target;
-      const msg = form.getAttribute("data-confirm");
-      if (msg && !window.confirm(msg)) {
-        e.preventDefault();
-        return;
-      }
-      const btn = form.querySelector('button[type="submit"]:not([disabled]), button:not([type])');
-      if (btn) {
-        const label = btn.textContent;
-        btn.disabled = true;
-        btn.classList.add("is-loading");
-        btn.textContent = "Working…";
-        setTimeout(function () {
-          btn.disabled = false;
-          btn.classList.remove("is-loading");
-          btn.textContent = label;
-        }, 4000);
-      }
-    },
-    true
-  );
 })();

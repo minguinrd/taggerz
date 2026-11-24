@@ -118,7 +118,7 @@ def test_pending_rows_are_resumed(cfg, make_track, monkeypatch):
 def test_status_shape(cfg):
     s = worker.status()
     assert set(s.keys()) == {"running", "phase", "seen", "queued", "fingerprinted",
-                            "errors", "message", "last_scan"}
+                            "errors", "message", "last_scan", "activity"}
 
 
 def test_fingerprint_only_does_not_rescan(cfg, make_track, monkeypatch):

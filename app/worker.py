@@ -8,7 +8,7 @@ import threading
 import traceback
 from pathlib import Path
 
-from app import db, scan
+from app import activity, db, scan
 from app.beets_adapter import candidates_for, default_acoustid_key
 from app.config import Config
 from app.fingerprint import AcoustidFailure, recording_ids
@@ -69,6 +69,7 @@ def run_fingerprint_sync(cfg: Config) -> dict:
                            fingerprinted=_fingerprinted, errors=_errors)
         pending = list(db.list_by_status(conn, (STATUS_PENDING,)))
         for prop in pending:
+            activity.start("fingerprint", prop.path)
             try:
                 ids = recording_ids(Path(prop.path), acoustid_key)
                 cands = candidates_for(Path(prop.path), ids)
@@ -81,6 +82,7 @@ def run_fingerprint_sync(cfg: Config) -> dict:
                 else:
                     db.set_candidates(conn, prop.id, cands)
             except AcoustidFailure as exc:
+                activity.finish(ok=False, detail=str(exc))
                 db.update_status(conn, prop.id, STATUS_ERROR, error=str(exc))
                 _errors += 1
                 if scan_id is not None:
@@ -91,6 +93,8 @@ def run_fingerprint_sync(cfg: Config) -> dict:
                 # One broken file must not abort the whole pass: park it as
                 # an error and keep going (mirrors scan's per-file handling).
                 traceback.print_exc()
+                activity.finish(ok=False,
+                                detail=f"{type(exc).__name__}: {exc}")
                 db.update_status(conn, prop.id, STATUS_ERROR,
                                  error=f"{type(exc).__name__}: {exc}")
                 _errors += 1
@@ -99,6 +103,7 @@ def run_fingerprint_sync(cfg: Config) -> dict:
                                    fingerprinted=_fingerprinted, errors=_errors)
                 continue
 
+            activity.finish(ok=True)
             _fingerprinted += 1
             if scan_id is not None:
                 db.update_scan(conn, scan_id, phase="fingerprinting",
@@ -136,8 +141,10 @@ def run_scan_sync(cfg: Config) -> dict:
     _seen = _queued = _fingerprinted = _errors = 0
     _message = None
 
+    activity.start("scan")
     try:
         stats = scan.run(cfg)
+        activity.finish(ok=True, detail=f"{stats.get('seen', 0)} files seen")
         _seen = stats.get("seen", 0)
         _queued = stats.get("queued", 0)
         _errors = stats.get("errors", 0)
@@ -145,6 +152,9 @@ def run_scan_sync(cfg: Config) -> dict:
         run_fingerprint_sync(cfg)
         _phase = "done"
         return status()
+    except Exception as exc:
+        activity.finish(ok=False, detail=f"{type(exc).__name__}: {exc}")
+        raise
     finally:
         _running = False
 
@@ -205,4 +215,5 @@ def status() -> dict:
         "errors": _errors,
         "message": _message,
         "last_scan": last_scan,
+        "activity": activity.snapshot(),
     }

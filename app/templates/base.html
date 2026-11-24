@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>taggerz</title>
+  <script>document.documentElement.classList.add("js");</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Righteous&display=swap" rel="stylesheet">
@@ -30,15 +31,49 @@
       </a>
     </nav>
   </header>
-  {% with messages = get_flashed_messages(with_categories=true) %}
-    {% for cat, m in messages %}
-      <div class="flash {{ cat }}" role="{{ 'alert' if cat == 'error' else 'status' }}">{{ m }}</div>
-    {% endfor %}
-  {% endwith %}
+
+  {# Server-rendered flashes land in the toast region; with JS they become
+     auto-dismissing toasts, without JS they stay as in-flow banners. #}
+  <div id="toasts" class="toasts">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for cat, m in messages %}
+        <div class="flash {{ cat }}" role="{{ 'alert' if cat == 'error' else 'status' }}">{{ m }}</div>
+      {% endfor %}
+    {% endwith %}
+  </div>
+
   <main id="main">
     {% block content %}{% endblock %}
   </main>
-  <div id="progress" role="status" aria-live="polite"></div>
+
+  {# Activity dock: live file-operation progress (populated by app.js). #}
+  <div id="dock" class="dock" hidden>
+    <button type="button" id="dock-pill" class="dock-pill" aria-expanded="false" aria-controls="dock-panel" aria-busy="false">
+      <span class="dock-spin" aria-hidden="true"></span>
+      <span id="dock-text">Idle</span>
+      <span id="dock-count" class="dock-count"></span>
+    </button>
+    <div id="dock-panel" class="dock-panel" hidden>
+      <div id="dock-current" class="dock-current" hidden></div>
+      <h3>Recent activity</h3>
+      <ul id="dock-recent" class="act-list"></ul>
+      <p id="dock-empty" class="dock-empty">Nothing yet — run a scan.</p>
+    </div>
+  </div>
+  <div id="live-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+
+  {# Custom confirm popup (replaces window.confirm). #}
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+    <form method="dialog" class="dialog-card">
+      <h2 id="confirm-title">Confirm</h2>
+      <p id="confirm-msg"></p>
+      <div class="dialog-actions">
+        <button value="cancel" class="btn btn-secondary" id="confirm-cancel" autofocus>Cancel</button>
+        <button value="confirm" class="btn btn-primary" id="confirm-ok">Confirm</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

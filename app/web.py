@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from markupsafe import Markup
 
-from app import db, scan
+from app import activity, db, scan
 from app.beets_adapter import read_fields
 from app.config import Config
 from app.models import (
@@ -313,6 +313,8 @@ def approve(pid):
         db.update_status(conn, pid, STATUS_ERROR, error=msg)
         if getattr(exc, "item_id", None) is not None:
             db.set_beets_item_id(conn, pid, exc.item_id)
+        activity.record("move" if move_only else "approve", proposal.path,
+                        ok=False, detail=msg)
         conn.close()
         flash(msg, "error")
         return redirect(url_for("web.queue_view"))
@@ -320,6 +322,8 @@ def approve(pid):
     db.update_status(conn, pid, STATUS_DONE)
     if item_id is not None:
         db.set_beets_item_id(conn, pid, item_id)
+    activity.record("move" if move_only else "approve", proposal.path,
+                    ok=True, detail=f"→ {dest}")
     conn.close()
     flash(f"tagged and moved to {dest}")
     return redirect(url_for("web.queue_view"))
@@ -408,6 +412,8 @@ def bulk_approve():
             db.update_status(conn, p.id, STATUS_DONE)
             if item_id is not None:
                 db.set_beets_item_id(conn, p.id, item_id)
+            activity.record("move" if move_only else "approve", p.path,
+                            ok=True, detail=f"→ {dest}")
             approved += 1
         except (beets_adapter.DestinationExists, beets_adapter.FileChanged,
                 beets_adapter.ApplyFailed) as exc:
@@ -422,6 +428,8 @@ def bulk_approve():
             db.update_status(conn, p.id, STATUS_ERROR, error=msg)
             if getattr(exc, "item_id", None) is not None:
                 db.set_beets_item_id(conn, p.id, exc.item_id)
+            activity.record("move" if move_only else "approve", p.path,
+                            ok=False, detail=msg)
             failed += 1
 
     conn.close()
