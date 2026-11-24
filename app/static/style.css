@@ -60,7 +60,7 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-padding-top: 5rem; }
+html { scroll-padding-top: 5rem; scroll-behavior: smooth; }
 
 body {
   font-family: var(--font-body);
@@ -287,6 +287,83 @@ main { max-width: 1060px; margin: 0 auto; }
   vertical-align: bottom;
 }
 .path:hover { color: var(--primary); text-decoration: underline; }
+.path .dir { color: var(--muted); font-weight: 400; }
+.path .file { color: inherit; font-weight: 600; }
+
+/* ---------- status tabs + queue tools ---------- */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.95rem;
+  min-height: 40px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--fg);
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+  transition: background var(--dur), border-color var(--dur), color var(--dur);
+}
+.tab:hover { background: var(--chip-bg); }
+.tab.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--on-primary);
+}
+.tab-count {
+  font-size: 0.76rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--chip-bg);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+.tab.active .tab-count {
+  background: rgb(255 255 255 / 0.22);
+  color: var(--on-primary);
+}
+
+.queue-tools { display: none; gap: var(--sp-2); margin-bottom: var(--sp-4); align-items: center; }
+html.js .queue-tools { display: flex; flex-wrap: wrap; }
+#queue-search { flex: 1 1 18rem; min-width: 0; }
+#search-meta { margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); }
+
+/* ---------- group collapse ---------- */
+
+.group-title { margin: 0; font-size: 1.02rem; }
+.group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-height: 44px;
+}
+.group-toggle .chev {
+  transition: transform var(--dur);
+  flex: none;
+  color: var(--muted);
+}
+.group-toggle[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+.group-toggle:hover .group-name { color: var(--primary); }
+
+.group[hidden], .queue-table tr[hidden] { display: none; }
 
 /* ---------- badges ---------- */
 
@@ -719,6 +796,7 @@ dialog::backdrop { background: rgb(15 23 42 / 0.55); }
 /* ---------- motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
   *, *::before, *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;

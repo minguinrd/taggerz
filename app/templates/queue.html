@@ -24,6 +24,19 @@
   </div>
 </header>
 
+<nav id="queue-tabs" class="tabs" aria-label="Queue filters">
+  <a class="tab{{ ' active' if tab == 'open' }}" href="{{ url_for('web.queue_view') }}" data-tab="open" data-count="{{ counts.open }}" aria-current="{{ 'page' if tab == 'open' else 'false' }}">Open <span class="tab-count">{{ '{:,}'.format(counts.open) }}</span></a>
+  <a class="tab{{ ' active' if tab == 'errors' }}" href="{{ url_for('web.queue_view', status='error') }}" data-tab="errors" data-count="{{ counts.errors }}" aria-current="{{ 'page' if tab == 'errors' else 'false' }}">Errors <span class="tab-count">{{ '{:,}'.format(counts.errors) }}</span></a>
+  <a class="tab{{ ' active' if tab == 'skipped' }}" href="{{ url_for('web.queue_view', status='skipped') }}" data-tab="skipped" data-count="{{ counts.skipped }}" aria-current="{{ 'page' if tab == 'skipped' else 'false' }}">Skipped <span class="tab-count">{{ '{:,}'.format(counts.skipped) }}</span></a>
+  <a class="tab{{ ' active' if tab == 'done' }}" href="{{ url_for('web.queue_view', status='done') }}" data-tab="done" data-count="{{ counts.done }}" aria-current="{{ 'page' if tab == 'done' else 'false' }}">Done <span class="tab-count">{{ '{:,}'.format(counts.done) }}</span></a>
+</nav>
+
+<div class="queue-tools">
+  <input type="search" id="queue-search" placeholder="Filter by file or album…" aria-label="Filter queue by file or album" autocomplete="off">
+  <button type="button" id="toggle-all" class="btn btn-quiet">Collapse all</button>
+</div>
+<p id="search-meta" class="subtitle" hidden></p>
+
 {% if not groups %}
 <div class="empty">
   <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -34,6 +47,11 @@
 </div>
 {% endif %}
 
+<div id="search-empty" class="empty" hidden>
+  <h2>No matching files</h2>
+  <p>Try a shorter file or album name.</p>
+</div>
+
 {% for key, items in groups %}
   {% set ns = namespace(n=0) %}
   {% for p in items %}
@@ -41,9 +59,14 @@
       {% set ns.n = ns.n + 1 %}
     {% endif %}
   {% endfor %}
-  <section class="group">
+  <section class="group" data-group="{{ album_key_value(key) }}">
     <div class="group-head">
-      <h2>{{ key }}</h2>
+      <h2 class="group-title">
+        <button type="button" class="group-toggle" aria-expanded="true" aria-controls="group-{{ loop.index }}">
+          <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+          <span class="group-name">{{ key }}</span>
+        </button>
+      </h2>
       <div class="group-actions">
         <span class="chip">{{ items|length }} file{{ 's' if items|length != 1 else '' }}</span>
         {% if ns.n > 0 %}
@@ -56,7 +79,7 @@
         {% endif %}
       </div>
     </div>
-    <table class="queue-table">
+    <table class="queue-table" id="group-{{ loop.index }}">
       <thead>
         <tr><th>File</th><th>Status</th></tr>
       </thead>

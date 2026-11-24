@@ -84,7 +84,23 @@ def queue_view():
     else:
         proposals = db.list_by_status(
             conn, (STATUS_PENDING, STATUS_AWAITING_REVIEW, STATUS_ERROR))
+    counts = {
+        "open": len(db.list_by_status(
+            conn, (STATUS_PENDING, STATUS_AWAITING_REVIEW, STATUS_ERROR))),
+        "errors": len(db.list_by_status(conn, (STATUS_ERROR,))),
+        "skipped": len(db.list_by_status(conn, (STATUS_SKIPPED,))),
+        "done": len(db.list_by_status(conn, (STATUS_DONE,))),
+    }
     conn.close()
+
+    if requested == STATUS_SKIPPED:
+        tab = "skipped"
+    elif requested == STATUS_DONE:
+        tab = "done"
+    elif requested == STATUS_ERROR:
+        tab = "errors"
+    else:
+        tab = "open"
 
     groups: dict[str, list] = {}
     for p in proposals:
@@ -94,6 +110,8 @@ def queue_view():
         "queue.html",
         groups=list(groups.items()),
         status_filter=requested if requested in STATUSES else "",
+        counts=counts,
+        tab=tab,
     )
 
 

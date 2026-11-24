@@ -249,4 +249,137 @@
     }
   }
   tick();
+
+  /* ---------------- queue: search + collapse (large libraries) ---------------- */
+
+  var searchInput = document.getElementById("queue-search");
+  if (searchInput) {
+    var groupEls = Array.prototype.slice.call(document.querySelectorAll(".group"));
+    var qGroups = groupEls.map(function (g) {
+      return {
+        el: g,
+        key: g.getAttribute("data-group") || "",
+        table: g.querySelector(".queue-table"),
+        toggle: g.querySelector(".group-toggle"),
+        rows: Array.prototype.slice.call(g.querySelectorAll("tbody tr"))
+      };
+    });
+    var searchMeta = document.getElementById("search-meta");
+    var searchEmpty = document.getElementById("search-empty");
+    var toggleAll = document.getElementById("toggle-all");
+    var currentQ = "";
+
+    // progressive enhancement: mute the directory, emphasize the filename
+    qGroups.forEach(function (g) {
+      g.rows.forEach(function (row) {
+        var a = row.querySelector(".path");
+        if (!a) return;
+        var full = a.textContent;
+        var i = full.lastIndexOf("/");
+        if (i <= 0) return;
+        a.textContent = "";
+        var d = document.createElement("span");
+        d.className = "dir";
+        d.textContent = full.slice(0, i + 1);
+        var f = document.createElement("b");
+        f.className = "file";
+        f.textContent = full.slice(i + 1);
+        a.appendChild(d);
+        a.appendChild(f);
+      });
+    });
+
+    // collapse state, persisted; large libraries start collapsed for overview
+    var STORAGE_KEY = "taggerz.collapsed";
+    var collapsed = new Set();
+    try {
+      var stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        collapsed = new Set(JSON.parse(stored));
+      } else if (qGroups.length > 10) {
+        qGroups.forEach(function (g) { collapsed.add(g.key); });
+      }
+    } catch (e) { /* storage unavailable — default to expanded */ }
+
+    function persistCollapsed() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(collapsed)));
+      } catch (e) { /* ignore */ }
+    }
+
+    function setCollapsed(g, isCollapsed) {
+      g.table.hidden = isCollapsed;
+      if (g.toggle) g.toggle.setAttribute("aria-expanded", String(!isCollapsed));
+    }
+
+    function anyExpanded() {
+      return qGroups.some(function (g) { return !g.el.hidden && !g.table.hidden; });
+    }
+
+    function updateToggleAll() {
+      if (!toggleAll) return;
+      toggleAll.textContent = anyExpanded() ? "Collapse all" : "Expand all";
+    }
+
+    function applyQueueState() {
+      var q = currentQ;
+      var shown = 0;
+      var total = 0;
+      qGroups.forEach(function (g) {
+        var matches = 0;
+        g.rows.forEach(function (row) {
+          total++;
+          var hit = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
+          row.hidden = !!q && !hit;
+          if (hit) matches++;
+        });
+        var showGroup = !q || matches > 0;
+        g.el.hidden = !showGroup;
+        // searching force-expands matching groups without losing the preference
+        setCollapsed(g, !q && collapsed.has(g.key));
+        shown += matches;
+      });
+      if (q) {
+        searchMeta.hidden = false;
+        searchMeta.textContent = shown + " of " + total + " files match";
+        searchEmpty.hidden = shown !== 0;
+      } else {
+        searchMeta.hidden = true;
+        searchEmpty.hidden = true;
+      }
+      updateToggleAll();
+    }
+
+    qGroups.forEach(function (g) {
+      if (!g.toggle) return;
+      g.toggle.addEventListener("click", function () {
+        if (collapsed.has(g.key)) collapsed.delete(g.key);
+        else collapsed.add(g.key);
+        persistCollapsed();
+        applyQueueState();
+      });
+    });
+
+    if (toggleAll) {
+      toggleAll.addEventListener("click", function () {
+        collapsed = new Set();
+        if (!anyExpanded()) {
+          qGroups.forEach(function (g) { collapsed.add(g.key); });
+        }
+        persistCollapsed();
+        applyQueueState();
+      });
+    }
+
+    var searchTimer;
+    searchInput.addEventListener("input", function () {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        currentQ = searchInput.value.trim().toLowerCase();
+        applyQueueState();
+      }, 150);
+    });
+
+    applyQueueState();
+  }
 })();

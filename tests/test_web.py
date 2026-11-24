@@ -516,3 +516,53 @@ def test_base_renders_confirm_dialog_and_toast_region(cfg, client):
     resp = client.get("/")
     assert b"<dialog" in resp.data          # custom confirm popup markup
     assert b'id="toasts"' in resp.data      # toast container (flashes land here)
+
+
+def test_queue_renders_status_tabs_with_counts(cfg, make_track, client):
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    seeds = [("awaiting", "needs-tags"), ("skipped", "needs-tags"),
+             ("done", "needs-tags"), ("error", "needs-tags")]
+    for i, (state, kind) in enumerate(seeds):
+        p = make_track(cfg.music_dir, f"tab{i}.flac")
+        r = db.enqueue(conn, path=str(p), mtime=1.0, size=1, kind=kind,
+                       current_tags={})
+        if state == "awaiting":
+            db.set_candidates(conn, r.id, [{"title": "x"}])
+        else:
+            db.update_status(conn, r.id, state,
+                             error="boom" if state == "error" else None)
+    conn.close()
+    resp = client.get("/")
+    html = resp.data
+    assert b'id="queue-tabs"' in html
+    for t in (b"open", b"errors", b"skipped", b"done"):
+        assert b'data-tab="' + t + b'"' in html
+    assert b'aria-current="page"' in html
+    # counts: open = awaiting + error = 2; errors/skipped/done = 1 each
+    assert b'data-count="2"' in html
+    assert html.count(b'data-count="1"') == 3
+    # active tab is Open on the default view
+    assert b'data-tab="open" data-count="2" aria-current="page"' in html
+
+
+def test_queue_has_search_and_group_toggles(cfg, make_track, client):
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    for name, track in (("s1.flac", 1), ("s2.flac", 2)):
+        p = make_track(cfg.music_dir, name, title=f"S{track}", artist="A",
+                       album="B", albumartist="A", track=track)
+        r = db.enqueue(conn, path=str(p), mtime=1.0, size=2,
+                       kind="organize-only",
+                       current_tags={"albumartist": "A", "album": "B"})
+        db.set_candidates(conn, r.id, [{"albumartist": "A", "album": "B"}])
+    conn.close()
+    resp = client.get("/")
+    html = resp.data
+    assert b'id="queue-search"' in html
+    assert b'id="toggle-all"' in html
+    assert b'class="group-toggle"' in html
+    assert b'aria-expanded="true"' in html
+    # data-group carries the entity-encoded key (raw key stays single-occurrence)
+    assert b'data-group="A &#124; B"' in html
+    assert html.count(b"A | B") == 1
