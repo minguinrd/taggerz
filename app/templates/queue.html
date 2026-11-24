@@ -32,12 +32,29 @@
 </nav>
 
 <div class="queue-tools">
-  <input type="search" id="queue-search" placeholder="Filter by file or album…" aria-label="Filter queue by file or album" autocomplete="off">
+  <form method="get" action="{{ url_for('web.queue_view') }}" id="queue-search-form" class="search-form">
+    {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+    <input type="search" id="queue-search" name="q" value="{{ q }}"
+           placeholder="Filter by file or album…" aria-label="Filter queue by file or album"
+           autocomplete="off"{% if q %} autofocus{% endif %}>
+    <button type="submit" class="btn btn-secondary">Filter</button>
+  </form>
   <button type="button" id="toggle-all" class="btn btn-quiet">Collapse all</button>
 </div>
-<p id="search-meta" class="subtitle" hidden></p>
 
-{% if not groups %}
+{% if q %}
+  {% if pagination.total_rows > 0 %}
+    <p id="search-meta" class="subtitle">
+      {{ pagination.total_rows }} {{ 'file' if pagination.total_rows == 1 else 'files' }} match
+      {%- if pagination.total_pages > 1 %} · page {{ pagination.page }} of {{ pagination.total_pages }}{% endif %}
+    </p>
+  {% else %}
+    <div id="search-empty" class="empty">
+      <h2>No matching files</h2>
+      <p>Try a shorter file or album name.</p>
+    </div>
+  {% endif %}
+{% elif not page_items %}
 <div class="empty">
   <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M4 4h7.5L20 12.5 12.5 20 4 11.5V4z"/><circle cx="8.75" cy="8.75" r="1.4"/>
@@ -47,14 +64,10 @@
 </div>
 {% endif %}
 
-<div id="search-empty" class="empty" hidden>
-  <h2>No matching files</h2>
-  <p>Try a shorter file or album name.</p>
-</div>
-
-{% for key, items in groups %}
+{% for key, items in page_items %}
+  {% set full = full_groups[key] %}
   {% set ns = namespace(n=0) %}
-  {% for p in items %}
+  {% for p in full %}
     {% if p.status == "awaiting-review" and p.kind != "unidentified" and (p.kind == "organize-only" or p.candidates) %}
       {% set ns.n = ns.n + 1 %}
     {% endif %}
@@ -68,7 +81,7 @@
         </button>
       </h2>
       <div class="group-actions">
-        <span class="chip">{{ items|length }} file{{ 's' if items|length != 1 else '' }}</span>
+        <span class="chip">{{ full|length }} file{{ 's' if full|length != 1 else '' }}</span>
         {% if ns.n > 0 %}
         <form method="post" action="{{ url_for('web.bulk_approve') }}"
               data-confirm="Approve {{ ns.n }} file{{ 's' if ns.n != 1 else '' }} in this group? Tags will be written and files moved — never overwritten.">
@@ -96,4 +109,21 @@
     </table>
   </section>
 {% endfor %}
+
+{% if pagination.total_pages > 1 %}
+<p class="pag-meta">Showing {{ pagination.start }}–{{ pagination.end }} of {{ '{:,}'.format(pagination.total_rows) }} files</p>
+<nav class="pagination" aria-label="Pagination">
+  {% for link in pagination.links %}
+    {% if link.kind == "gap" %}
+      <span class="pag-gap" aria-hidden="true">…</span>
+    {% elif link.kind == "step" %}
+      <a class="pag-btn" href="{{ link.href }}">{{ link.label }}</a>
+    {% elif link.current %}
+      <a class="pag-link current" href="{{ link.href }}" data-page="{{ link.label }}" aria-current="page">{{ link.label }}</a>
+    {% else %}
+      <a class="pag-link" href="{{ link.href }}" data-page="{{ link.label }}">{{ link.label }}</a>
+    {% endif %}
+  {% endfor %}
+</nav>
+{% endif %}
 {% endblock %}

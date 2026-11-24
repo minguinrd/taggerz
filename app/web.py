@@ -73,6 +73,38 @@ def _badge(proposal) -> str:
     return kind
 
 
+QUEUE_PAGE_SIZE = 50
+
+
+def _paginate_groups(group_list, page_size):
+    """Pack (key, items) groups into pages of rows.
+
+    A group is never split unless it alone exceeds ``page_size``; oversized
+    groups are chunked with their header repeated on each chunk page. Each
+    page holds (key, shown_rows) tuples; the full group stays reachable via
+    the caller's dict for counts.
+    """
+    pages: list[list[tuple[str, list]]] = []
+    cur: list[tuple[str, list]] = []
+    cur_rows = 0
+    for key, items in group_list:
+        if len(items) > page_size:
+            if cur:
+                pages.append(cur)
+                cur, cur_rows = [], 0
+            for i in range(0, len(items), page_size):
+                pages.append([(key, items[i:i + page_size])])
+            continue
+        if cur and cur_rows + len(items) > page_size:
+            pages.append(cur)
+            cur, cur_rows = [], 0
+        cur.append((key, items))
+        cur_rows += len(items)
+    if cur:
+        pages.append(cur)
+    return pages or [[]]
+
+
 @bp.route("/")
 def queue_view():
     cfg = _cfg()
@@ -102,16 +134,78 @@ def queue_view():
     else:
         tab = "open"
 
+    # server-side filter (pagination would cripple a client-side one)
+    q = (request.args.get("q") or "").strip()
+    if q:
+        ql = q.lower()
+        proposals = [p for p in proposals
+                     if ql in p.path.lower() or ql in group_key(p).lower()]
+
     groups: dict[str, list] = {}
     for p in proposals:
         groups.setdefault(group_key(p), []).append(p)
+    group_list = list(groups.items())
+
+    pages = _paginate_groups(group_list, QUEUE_PAGE_SIZE)
+    total_pages = len(pages)
+    try:
+        page = int(request.args.get("page", "1"))
+    except (TypeError, ValueError):
+        page = 1
+    page = min(max(page, 1), total_pages)
+    page_items = pages[page - 1]
+
+    total_rows = len(proposals)
+    rows_before = sum(len(chunk) for pg in pages[:page - 1]
+                      for _, chunk in pg)
+    page_rows = sum(len(items) for _, items in page_items)
+    start = rows_before + 1 if total_rows else 0
+    end = rows_before + page_rows
+
+    def page_href(pno):
+        kwargs = {"page": pno}
+        if requested in STATUSES:
+            kwargs["status"] = requested
+        if q:
+            kwargs["q"] = q
+        return url_for("web.queue_view", **kwargs)
+
+    links = []
+    if total_pages > 1:
+        if page > 1:
+            links.append({"label": "Previous", "href": page_href(page - 1),
+                          "kind": "step"})
+        window = sorted({n for n in
+                         (1, 2, page - 1, page, page + 1,
+                          total_pages - 1, total_pages)
+                         if 1 <= n <= total_pages})
+        prev_n = None
+        for n in window:
+            if prev_n is not None and n - prev_n > 1:
+                links.append({"label": "…", "kind": "gap"})
+            links.append({"label": str(n), "href": page_href(n),
+                          "kind": "page", "current": n == page})
+            prev_n = n
+        if page < total_pages:
+            links.append({"label": "Next", "href": page_href(page + 1),
+                          "kind": "step"})
 
     return render_template(
         "queue.html",
-        groups=list(groups.items()),
+        page_items=page_items,
+        full_groups=dict(group_list),
         status_filter=requested if requested in STATUSES else "",
         counts=counts,
         tab=tab,
+        q=q,
+        pagination={
+            "page": page,
+            "total_pages": total_pages,
+            "total_rows": total_rows,
+            "start": start,
+            "end": end,
+            "links": links,
+        },
     )
 
 

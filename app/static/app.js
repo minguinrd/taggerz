@@ -253,6 +253,7 @@
   /* ---------------- queue: search + collapse (large libraries) ---------------- */
 
   var searchInput = document.getElementById("queue-search");
+  var searchForm = document.getElementById("queue-search-form");
   if (searchInput) {
     var groupEls = Array.prototype.slice.call(document.querySelectorAll(".group"));
     var qGroups = groupEls.map(function (g) {
@@ -264,10 +265,7 @@
         rows: Array.prototype.slice.call(g.querySelectorAll("tbody tr"))
       };
     });
-    var searchMeta = document.getElementById("search-meta");
-    var searchEmpty = document.getElementById("search-empty");
     var toggleAll = document.getElementById("toggle-all");
-    var currentQ = "";
 
     // progressive enhancement: mute the directory, emphasize the filename
     qGroups.forEach(function (g) {
@@ -313,7 +311,7 @@
     }
 
     function anyExpanded() {
-      return qGroups.some(function (g) { return !g.el.hidden && !g.table.hidden; });
+      return qGroups.some(function (g) { return !g.table.hidden; });
     }
 
     function updateToggleAll() {
@@ -321,32 +319,8 @@
       toggleAll.textContent = anyExpanded() ? "Collapse all" : "Expand all";
     }
 
-    function applyQueueState() {
-      var q = currentQ;
-      var shown = 0;
-      var total = 0;
-      qGroups.forEach(function (g) {
-        var matches = 0;
-        g.rows.forEach(function (row) {
-          total++;
-          var hit = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
-          row.hidden = !!q && !hit;
-          if (hit) matches++;
-        });
-        var showGroup = !q || matches > 0;
-        g.el.hidden = !showGroup;
-        // searching force-expands matching groups without losing the preference
-        setCollapsed(g, !q && collapsed.has(g.key));
-        shown += matches;
-      });
-      if (q) {
-        searchMeta.hidden = false;
-        searchMeta.textContent = shown + " of " + total + " files match";
-        searchEmpty.hidden = shown !== 0;
-      } else {
-        searchMeta.hidden = true;
-        searchEmpty.hidden = true;
-      }
+    function applyCollapseState() {
+      qGroups.forEach(function (g) { setCollapsed(g, collapsed.has(g.key)); });
       updateToggleAll();
     }
 
@@ -356,7 +330,7 @@
         if (collapsed.has(g.key)) collapsed.delete(g.key);
         else collapsed.add(g.key);
         persistCollapsed();
-        applyQueueState();
+        applyCollapseState();
       });
     });
 
@@ -367,19 +341,23 @@
           qGroups.forEach(function (g) { collapsed.add(g.key); });
         }
         persistCollapsed();
-        applyQueueState();
+        applyCollapseState();
       });
     }
 
-    var searchTimer;
-    searchInput.addEventListener("input", function () {
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(function () {
-        currentQ = searchInput.value.trim().toLowerCase();
-        applyQueueState();
-      }, 150);
-    });
+    // search is server-side (pagination would cripple a client filter);
+    // debounce into a GET submit, autofocus keeps typing alive across reloads
+    if (searchForm) {
+      var initialQ = searchInput.value;
+      var searchTimer;
+      searchInput.addEventListener("input", function () {
+        clearTimeout(searchTimer);
+        searchTimer = setTimeout(function () {
+          if (searchInput.value !== initialQ) searchForm.submit();
+        }, 350);
+      });
+    }
 
-    applyQueueState();
+    applyCollapseState();
   }
 })();

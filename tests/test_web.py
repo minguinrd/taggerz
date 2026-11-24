@@ -566,3 +566,88 @@ def test_queue_has_search_and_group_toggles(cfg, make_track, client):
     # data-group carries the entity-encoded key (raw key stays single-occurrence)
     assert b'data-group="A &#124; B"' in html
     assert html.count(b"A | B") == 1
+
+
+def test_queue_paginates_by_rows(cfg, make_track, client, monkeypatch):
+    import app.web as webmod
+    monkeypatch.setattr(webmod, "QUEUE_PAGE_SIZE", 10)
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    for aa, al in (("A", "B"), ("C", "D"), ("E", "F")):
+        for t in range(5):
+            p = make_track(cfg.music_dir, f"{aa}{t}.flac", title=f"T{t}",
+                           artist=aa, album=al, albumartist=aa, track=t + 1)
+            r = db.enqueue(conn, path=str(p), mtime=1.0, size=1,
+                           kind="organize-only",
+                           current_tags={"albumartist": aa, "album": al})
+            db.set_candidates(conn, r.id, [{"albumartist": aa, "album": al}])
+    conn.close()
+
+    resp = client.get("/")
+    html = resp.data.decode()
+    assert 'class="pagination"' in html
+    assert 'data-page="2"' in html
+    assert "of 15 files" in html
+    assert html.count('class="path"') == 10          # page 1 = 10 rows
+    assert "A | B" in html and "C | D" in html
+    assert "E | F" not in html                        # third group on page 2
+
+    # out-of-range clamps to the last page
+    h2 = client.get("/?page=99").data.decode()
+    assert "E | F" in h2 and "A | B" not in h2
+    assert h2.count('class="path"') == 5
+    assert 'pag-link current' in h2
+
+    # non-integer page falls back to page 1
+    assert client.get("/?page=abc").status_code == 200
+
+
+def test_queue_splits_oversized_group_with_full_counts(cfg, make_track,
+                                                       client, monkeypatch):
+    import app.web as webmod
+    monkeypatch.setattr(webmod, "QUEUE_PAGE_SIZE", 4)
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    for t in range(6):
+        p = make_track(cfg.music_dir, f"big{t}.flac", title=f"B{t}",
+                       artist="A", album="B", albumartist="A", track=t + 1)
+        r = db.enqueue(conn, path=str(p), mtime=1.0, size=1,
+                       kind="organize-only",
+                       current_tags={"albumartist": "A", "album": "B"})
+        db.set_candidates(conn, r.id, [{"albumartist": "A", "album": "B"}])
+    conn.close()
+
+    h1 = client.get("/").data.decode()
+    assert h1.count('class="path"') == 4
+    assert h1.count("A | B") == 1
+    assert "Approve 6" in h1 and "6 files" in h1      # full-group counts
+
+    h2 = client.get("/?page=2").data.decode()
+    assert h2.count('class="path"') == 2
+    assert h2.count("A | B") == 1                     # header repeated per chunk
+    assert "Approve 6" in h2
+
+
+def test_queue_search_is_server_side(cfg, make_track, client):
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    for name, aa, al, t in (("a0.flac", "Alpha", "One", 1),
+                            ("a1.flac", "Alpha", "One", 2),
+                            ("z0.flac", "Zeta", "Yellow", 1)):
+        p = make_track(cfg.music_dir, name, title=name, artist=aa, album=al,
+                       albumartist=aa, track=t)
+        r = db.enqueue(conn, path=str(p), mtime=1.0, size=1,
+                       kind="organize-only",
+                       current_tags={"albumartist": aa, "album": al})
+        db.set_candidates(conn, r.id, [{"albumartist": aa, "album": al}])
+    conn.close()
+
+    # matches the group key (album name), not just paths
+    h = client.get("/?q=yellow").data.decode()
+    assert "Zeta | Yellow" in h and "Alpha | One" not in h
+    assert "1 file match" in h
+    assert 'autofocus' in h                           # focus restored after reload
+
+    # no-results state, never a blank page
+    h2 = client.get("/?q=zzz-nothing").data.decode()
+    assert "No matching files" in h2
