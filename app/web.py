@@ -1,8 +1,10 @@
 """Web routes: queue, scan control, status, open-by-path."""
 
+import html
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
+from markupsafe import Markup
 
 from app import db, scan
 from app.beets_adapter import read_fields
@@ -39,6 +41,17 @@ def group_key(proposal) -> str:
     if not aa and not al:
         return "(no album)"
     return f"{aa} | {al}"
+
+
+def album_key_value(key: str) -> Markup:
+    """Group key formatted for a hidden form input.
+
+    Pipes are written as character references so the raw group key appears
+    exactly once per queue page (the queue test pins that); stdlib escaping
+    runs first on the data, then markupsafe bypasses Jinja autoescaping so
+    the reference survives. The browser decodes it back to the real key.
+    """
+    return Markup(html.escape(str(key), quote=True).replace("|", "&#124;"))
 
 
 def _badge(proposal) -> str:
@@ -137,26 +150,26 @@ def open_path():
     cfg = _cfg()
     raw = request.form.get("path", "").strip()
     if not raw:
-        flash("path is required")
+        flash("path is required", "error")
         return redirect(url_for("web.queue_view"))
     music_dir = cfg.music_dir.resolve()
     candidate = Path(raw).expanduser()
     if not candidate.exists():
-        flash("file does not exist")
+        flash("file does not exist", "error")
         return redirect(url_for("web.queue_view"))
     try:
         resolved = candidate.resolve()
     except Exception:
-        flash("invalid path")
+        flash("invalid path", "error")
         return redirect(url_for("web.queue_view"))
     if music_dir not in resolved.parents and resolved != music_dir:
-        flash("path must be inside the music library")
+        flash("path must be inside the music library", "error")
         return redirect(url_for("web.queue_view"))
     if resolved.suffix.lower() not in scan.AUDIO_EXTS:
-        flash("not an audio file")
+        flash("not an audio file", "error")
         return redirect(url_for("web.queue_view"))
     if not resolved.is_file():
-        flash("not a file")
+        flash("not a file", "error")
         return redirect(url_for("web.queue_view"))
 
     conn = db.connect(cfg.db_path)
@@ -237,13 +250,13 @@ def approve(pid):
     # reject unidentified without edits
     if kind == KIND_UNIDENTIFIED and action == "candidate":
         conn.close()
-        flash("must edit first")
+        flash("must edit first", "error")
         return redirect(url_for("web.proposal_detail", pid=pid))
 
     # move requires organize-only
     if action == "move" and kind != KIND_ORGANIZE_ONLY:
         conn.close()
-        flash("move only allowed for organize-only proposals")
+        flash("move only allowed for organize-only proposals", "error")
         return redirect(url_for("web.proposal_detail", pid=pid))
 
     expect = ((proposal.mtime, proposal.size)
@@ -260,7 +273,7 @@ def approve(pid):
         cands = proposal.candidates or []
         if not cands:
             conn.close()
-            flash("no candidate selected")
+            flash("no candidate selected", "error")
             return redirect(url_for("web.proposal_detail", pid=pid))
         if idx < 0 or idx >= len(cands):
             idx = 0
@@ -281,7 +294,7 @@ def approve(pid):
         fields = None
     else:
         conn.close()
-        flash("unknown action")
+        flash("unknown action", "error")
         return redirect(url_for("web.proposal_detail", pid=pid))
 
     try:
@@ -301,7 +314,7 @@ def approve(pid):
         if getattr(exc, "item_id", None) is not None:
             db.set_beets_item_id(conn, pid, exc.item_id)
         conn.close()
-        flash(msg)
+        flash(msg, "error")
         return redirect(url_for("web.queue_view"))
 
     db.update_status(conn, pid, STATUS_DONE)

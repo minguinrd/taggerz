@@ -1,23 +1,75 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Queue</h1>
-<form method="post" action="{{ url_for('web.scan_post') }}">
-  <button type="submit">Scan</button>
-</form>
-<form method="post" action="{{ url_for('web.open_path') }}">
-  <input name="path" placeholder="/music/.../file.flac">
-  <button type="submit">Open by path</button>
-</form>
+<header class="page-head">
+  <div>
+    <h1>Queue</h1>
+    <p class="subtitle">Files that need tags or organizing — review each change before anything is written.</p>
+  </div>
+  <div class="toolbar">
+    <form method="post" action="{{ url_for('web.scan_post') }}">
+      <button type="submit" class="btn btn-primary">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+          <circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/>
+        </svg>
+        Scan library
+      </button>
+    </form>
+    <details class="open-path">
+      <summary>Open a single file by path</summary>
+      <form method="post" action="{{ url_for('web.open_path') }}">
+        <input name="path" placeholder="/music/.../file.flac" aria-label="File path inside the music library">
+        <button type="submit" class="btn btn-secondary">Open</button>
+      </form>
+    </details>
+  </div>
+</header>
+
+{% if not groups %}
+<div class="empty">
+  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 4h7.5L20 12.5 12.5 20 4 11.5V4z"/><circle cx="8.75" cy="8.75" r="1.4"/>
+  </svg>
+  <h2>Nothing in the queue</h2>
+  <p>Run a scan to find files with missing tags or files sitting in the wrong place.</p>
+</div>
+{% endif %}
+
 {% for key, items in groups %}
+  {% set ns = namespace(n=0) %}
+  {% for p in items %}
+    {% if p.status == "awaiting-review" and p.kind != "unidentified" and (p.kind == "organize-only" or p.candidates) %}
+      {% set ns.n = ns.n + 1 %}
+    {% endif %}
+  {% endfor %}
   <section class="group">
-    <h2>{{ key }}</h2>
-    <table>
-      {% for p in items %}
-      <tr>
-        <td>{{ p.path }}</td>
-        <td class="badge {{ badge(p).lower().replace(' ', '-').replace('…', '') }}">{{ badge(p) }}</td>
-      </tr>
-      {% endfor %}
+    <div class="group-head">
+      <h2>{{ key }}</h2>
+      <div class="group-actions">
+        <span class="chip">{{ items|length }} file{{ 's' if items|length != 1 else '' }}</span>
+        {% if ns.n > 0 %}
+        <form method="post" action="{{ url_for('web.bulk_approve') }}"
+              data-confirm="Approve {{ ns.n }} file{{ 's' if ns.n != 1 else '' }} in this group? Tags will be written and files moved — never overwritten.">
+          {# key rendered as entities so the raw group key appears exactly once per page #}
+          <input type="hidden" name="album_key" value="{{ album_key_value(key) }}">
+          <button type="submit" class="btn btn-primary">Approve {{ ns.n }}</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+    <table class="queue-table">
+      <thead>
+        <tr><th>File</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for p in items %}
+        <tr>
+          <td>
+            <a class="path" href="{{ url_for('web.proposal_detail', pid=p.id) }}" title="{{ p.path }}">{{ p.path }}</a>
+          </td>
+          <td><span class="badge {{ badge(p).lower().replace(' ', '-').replace('…', '') }}">{{ badge(p) }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
     </table>
   </section>
 {% endfor %}

@@ -73,4 +73,5 @@ def create_app(cfg: Config | None = None) -> Flask:
     app.register_blueprint(web.bp)
     app.jinja_env.globals["group_key"] = web.group_key
     app.jinja_env.globals["badge"] = web._badge
+    app.jinja_env.globals["album_key_value"] = web.album_key_value
     return app

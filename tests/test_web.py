@@ -487,3 +487,25 @@ def test_create_app_fails_fast_on_readonly_queue_db(cfg):
             create_app(cfg)
     finally:
         os.chmod(cfg.db_path, 0o644)
+
+
+def test_queue_bulk_approve_button_renders_decodable_key(cfg, make_track,
+                                                          client):
+    # bulk-approve UI: hidden input must carry a single-encoded character
+    # reference (browser decodes it back to "A | B" on submit) and the raw
+    # group key must still appear exactly once on the page
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    for name, track in (("g1.flac", 1), ("g2.flac", 2)):
+        p = make_track(cfg.music_dir, name, title=f"T{track}", artist="A",
+                       album="B", albumartist="A", track=track)
+        r = db.enqueue(conn, path=str(p), mtime=1.0, size=2,
+                       kind="organize-only",
+                       current_tags={"albumartist": "A", "album": "B"})
+        db.set_candidates(conn, r.id,
+                          [{"albumartist": "A", "album": "B"}])
+    conn.close()
+    resp = client.get("/")
+    assert b'name="album_key" value="A &#124; B"' in resp.data
+    assert b"Approve 2" in resp.data
+    assert resp.data.count(b"A | B") == 1

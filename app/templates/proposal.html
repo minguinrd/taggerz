@@ -1,65 +1,124 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Proposal {{ proposal.id }}</h1>
-<p>{{ proposal.path }}</p>
-<p class="badge {{ badge(proposal).lower().replace(' ', '-').replace('…', '') }}">{{ badge(proposal) }}</p>
+{% set fname = proposal.path.split('/')[-1] %}
+<header class="page-head detail-head">
+  <div>
+    <h1>{{ fname }}</h1>
+    <p class="subtitle path">{{ proposal.path }}</p>
+  </div>
+  <span class="badge {{ badge(proposal).lower().replace(' ', '-').replace('…', '') }}">{{ badge(proposal) }}</span>
+</header>
 
-<h2>Current tags</h2>
-<table>
-  {% for k, v in proposal.current_tags.items() %}
-  <tr><td>{{ k }}</td><td>{{ v }}</td></tr>
-  {% endfor %}
-</table>
+<div class="compare">
+  <section class="panel">
+    <h2>Current tags</h2>
+    <table class="tag-table">
+      {% for k, v in proposal.current_tags.items() %}
+      <tr><td>{{ k }}</td><td>{{ v if v is not none else '—' }}</td></tr>
+      {% endfor %}
+      {% if not proposal.current_tags %}
+      <tr><td colspan="2">No tags read from this file.</td></tr>
+      {% endif %}
+    </table>
+  </section>
 
-{% if proposal.candidates %}
-<h2>Candidates</h2>
-{% for c in proposal.candidates %}
-<div class="candidate">
-  <p>score: {{ ((c.get('score') or 0) * 100)|round }}% recommendation: {{ c.get('recommendation') }}</p>
-  <table>
-    {% for f in candidate_fields %}
-    <tr><td>{{ f }}</td><td>{{ c.get(f) }}</td></tr>
-    {% endfor %}
-  </table>
+  <section class="panel">
+    <h2>Proposed tags</h2>
+    {% if proposal.candidates %}
+    <form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}"
+          data-confirm="Write these tags and move the file into your library? Files are never overwritten.">
+      <input type="hidden" name="action" value="candidate">
+      <div class="candidates">
+        {% for c in proposal.candidates %}
+        {% set sc = ((c.get('score') or 0) * 100)|round|int %}
+        <label class="candidate-card">
+          <div class="candidate-top">
+            <input type="radio" name="candidate" value="{{ loop.index0 }}" {% if loop.first %}checked{% endif %}>
+            <span class="candidate-title">{{ c.get('title') or '(no title)' }}</span>
+            <span class="candidate-meta">
+              {{- c.get('artist') or '' -}}
+              {%- if c.get('album') %} · {{ c.get('album') }}{% endif -%}
+            </span>
+            {% if c.get('recommendation') %}<span class="chip">{{ c.get('recommendation') }}</span>{% endif %}
+          </div>
+          <div class="score">
+            <span class="score-track"><span class="score-fill {% if sc >= 80 %}high{% elif sc < 50 %}low{% endif %}" style="width: {{ sc }}%"></span></span>
+            <span class="score-num">{{ sc }}%</span>
+          </div>
+          <details>
+            <summary>All fields</summary>
+            <table class="tag-table">
+              {% for f in candidate_fields %}
+              <tr><td>{{ f }}</td><td>{{ c.get(f) if c.get(f) is not none else '—' }}</td></tr>
+              {% endfor %}
+            </table>
+          </details>
+        </label>
+        {% endfor %}
+      </div>
+      <div class="action-row">
+        <button type="submit" class="btn btn-primary">Approve selected</button>
+      </div>
+    </form>
+    {% else %}
+    <p class="subtitle">No fingerprint match — edit the tags manually below.</p>
+    {% endif %}
+  </section>
 </div>
-{% endfor %}
-{% endif %}
 
-<h2>Approve</h2>
-<form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}">
-  <input type="hidden" name="action" value="candidate">
-  {% if proposal.candidates %}
-  <label><input type="radio" name="candidate" value="0" checked> Use candidate 0</label>
-  <button type="submit">Approve</button>
-  {% endif %}
-</form>
+<div class="actions">
+  <section class="panel">
+    <h2>Manual edits</h2>
+    <form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}"
+          data-confirm="Write these tags and move the file into your library? Files are never overwritten.">
+      <input type="hidden" name="action" value="edits">
+      {% set src = (proposal.candidates[0] if proposal.candidates else proposal.current_tags) or {} %}
+      <div class="edit-grid">
+        {% for f in candidate_fields %}
+        <label class="edit-field"><span>{{ f }}</span>
+          <input name="{{ f }}" value="{{ src.get(f) if src.get(f) is not none else '' }}">
+        </label>
+        {% endfor %}
+      </div>
+      <div class="action-row">
+        <button type="submit" class="btn btn-primary">Save &amp; approve edits</button>
+      </div>
+    </form>
+    {% if proposal.kind == "organize-only" %}
+    <form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}"
+          data-confirm="Move this file to its template path? Tags stay untouched.">
+      <input type="hidden" name="action" value="move">
+      <div class="action-row">
+        <button type="submit" class="btn btn-secondary">Move only</button>
+      </div>
+    </form>
+    {% endif %}
+  </section>
 
-<form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}">
-  <input type="hidden" name="action" value="edits">
-  {% set src = (proposal.candidates[0] if proposal.candidates else proposal.current_tags) or {} %}
-  {% for f in candidate_fields %}
-  <label>{{ f }}: <input name="{{ f }}" value="{{ src.get(f) if src.get(f) is not none else '' }}"></label><br>
-  {% endfor %}
-  <button type="submit">Save &amp; approve edits</button>
-</form>
-
-{% if proposal.kind == "organize-only" %}
-<form method="post" action="{{ url_for('web.approve', pid=proposal.id) }}">
-  <input type="hidden" name="action" value="move">
-  <button type="submit">Move only</button>
-</form>
-{% endif %}
-
-<form method="post" action="{{ url_for('web.skip', pid=proposal.id) }}">
-  <button type="submit">Skip</button>
-</form>
-<form method="post" action="{{ url_for('web.reset', pid=proposal.id) }}">
-  <button type="submit">Reset to queue</button>
-</form>
-<form method="post" action="{{ url_for('web.retry', pid=proposal.id) }}">
-  <button type="submit">Retry</button>
-</form>
-<form method="post" action="{{ url_for('web.identify', pid=proposal.id) }}">
-  <button type="submit">Identify again</button>
-</form>
+  <section class="panel">
+    <h2>Queue actions</h2>
+    <div class="utility-actions">
+      {% if proposal.status not in ("skipped", "done") %}
+      <form method="post" action="{{ url_for('web.skip', pid=proposal.id) }}">
+        <button type="submit" class="btn btn-quiet">Skip</button>
+      </form>
+      {% endif %}
+      {% if proposal.status == "skipped" %}
+      <form method="post" action="{{ url_for('web.reset', pid=proposal.id) }}">
+        <button type="submit" class="btn btn-secondary">Reset to queue</button>
+      </form>
+      {% endif %}
+      {% if proposal.status == "error" %}
+      <form method="post" action="{{ url_for('web.retry', pid=proposal.id) }}">
+        <button type="submit" class="btn btn-secondary">Retry</button>
+      </form>
+      {% endif %}
+      {% if proposal.candidates %}
+      <form method="post" action="{{ url_for('web.identify', pid=proposal.id) }}">
+        <button type="submit" class="btn btn-quiet">Identify again</button>
+      </form>
+      {% endif %}
+    </div>
+  </section>
+</div>
 {% endblock %}

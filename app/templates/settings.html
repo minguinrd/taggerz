@@ -1,22 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
 <h1>Settings</h1>
-<dl>
-  <dt>music_dir</dt><dd>{{ music_dir }}</dd>
-  <dt>data_dir</dt><dd>{{ data_dir }}</dd>
-  <dt>path template (paths.default)</dt><dd>{{ template }}</dd>
-  <dt>AcoustID key source</dt><dd>{{ acoustid_source }}</dd>
-</dl>
-<h2>Proposal counts</h2>
-<ul>
-  {% for status, count in counts.items() %}
-  <li>{{ status }}: {{ count }}</li>
-  {% endfor %}
-</ul>
-<h2>Last scan</h2>
-{% if last_scan %}
-<pre>{{ last_scan }}</pre>
-{% else %}
-<p>none</p>
-{% endif %}
+<p class="subtitle">Read-only view of the effective configuration.</p>
+
+<div class="settings-grid">
+  <section class="panel">
+    <h2>Library</h2>
+    <dl class="meta">
+      <dt>Music folder</dt><dd>{{ music_dir }}</dd>
+      <dt>Data folder</dt><dd>{{ data_dir }}</dd>
+      <dt>Path template</dt><dd><code>{{ template }}</code></dd>
+      <dt>AcoustID key</dt><dd>{{ acoustid_source }}</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Queue</h2>
+    <ul class="stat-list">
+      {% for status, count in counts.items() %}
+      <li>{{ status }}<b>{{ count }}</b></li>
+      {% endfor %}
+    </ul>
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Last scan</h2>
+  {% if last_scan %}
+  <table class="tag-table">
+    {% for k, v in last_scan.items() %}
+    <tr><td>{{ k }}</td><td>{{ v if v is not none else '—' }}</td></tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p class="subtitle">No scans yet — run one from the queue page.</p>
+  {% endif %}
+</section>
 {% endblock %}
