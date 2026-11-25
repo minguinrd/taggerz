@@ -151,6 +151,7 @@
   var wasRunning = false;
 
   function render(data) {
+    renderJobProgress(data);
     var act = data.activity || { current: null, recent: [] };
     var hasAny = data.running || act.current || act.recent.length > 0 ||
                  data.phase === "error";
@@ -249,6 +250,153 @@
     }
   }
   tick();
+
+  /* ---------------- queue job progress (top of queue page) ---------------- */
+
+  var jobSection = document.getElementById("job-progress");
+  var jobBar = document.getElementById("job-bar");
+  var jobFill = document.getElementById("job-bar-fill");
+  var jobCounts = document.getElementById("job-counts");
+  var jobNow = document.getElementById("job-now");
+  var jobNowPath = document.getElementById("job-now-path");
+  var jobNowDur = document.getElementById("job-now-dur");
+  var jobEta = document.getElementById("job-eta");
+  var jobError = document.getElementById("job-error");
+  var jobIdle = document.getElementById("job-idle");
+  var jobSteps = jobSection
+    ? jobSection.querySelectorAll(".job-step")
+    : [];
+
+  var etaSamples = [];
+  var etaPhase = null;
+
+  function jobState(data) {
+    if (data.running) return "running";
+    if (data.phase === "error") return "error";
+    if (data.last_scan) return "idle";
+    return "hidden";
+  }
+
+  function jobCountsText(data) {
+    if (data.phase === "scanning") {
+      return data.seen.toLocaleString() + " files seen · " +
+             data.errors + " errors";
+    }
+    return data.fingerprinted.toLocaleString() + " / " +
+           data.queued.toLocaleString() + " files · " +
+           data.errors + " errors";
+  }
+
+  function jobIdleText(scan) {
+    var t = scan.started_at || scan.finished_at;
+    var d = new Date(t * 1000);
+    var hhmm = String(d.getHours()).padStart(2, "0") + ":" +
+               String(d.getMinutes()).padStart(2, "0");
+    return "Last scan: " + hhmm + " · " +
+           Number(scan.seen || 0).toLocaleString() + " files · " +
+           (scan.errors || 0) + " errors";
+  }
+
+  // Rolling ETA: rate over a ~30s window of fingerprinted-count samples,
+  // reset whenever the phase changes. Returns seconds, or null.
+  function etaSeconds(phase, fingerprinted, queued, nowMs) {
+    if (phase !== etaPhase) {
+      etaSamples = [];
+      etaPhase = phase;
+    }
+    if (phase !== "fingerprinting") return null;
+    etaSamples.push({ t: nowMs, n: fingerprinted });
+    while (etaSamples.length > 1 && nowMs - etaSamples[0].t > 30000) {
+      etaSamples.shift();
+    }
+    if (etaSamples.length < 2) return null;
+    var first = etaSamples[0];
+    var last = etaSamples[etaSamples.length - 1];
+    var span = last.t - first.t;
+    if (span < 5000) return null;
+    var rate = (last.n - first.n) / span; // files per ms
+    if (!(rate > 0)) return null;
+    var remaining = queued - last.n;
+    if (remaining <= 0) return null;
+    return remaining / rate / 1000;
+  }
+
+  function formatEta(sec) {
+    if (sec < 60) return "about a minute left";
+    if (sec < 3600) return "≈ " + Math.round(sec / 60) + " min left";
+    var h = Math.floor(sec / 3600);
+    var m = Math.round((sec % 3600) / 60);
+    return "≈ " + h + " hr " + m + " min left";
+  }
+
+  function renderJobProgress(data) {
+    if (!jobSection) return;
+    var state = jobState(data);
+    jobSection.setAttribute("data-state", state);
+    if (state === "hidden") {
+      jobSection.hidden = true;
+      return;
+    }
+    jobSection.hidden = false;
+
+    // stepper: scan / fingerprint / done
+    var activeIdx = data.phase === "scanning" ? 0
+                  : data.phase === "fingerprinting" ? 1 : 2;
+    for (var i = 0; i < jobSteps.length; i++) {
+      var cls = i < activeIdx ? "is-done"
+              : i === activeIdx ? "is-active" : "is-todo";
+      jobSteps[i].className = "job-step " + cls;
+    }
+
+    if (state === "running") {
+      var indeterminate = data.phase === "scanning";
+      jobBar.classList.toggle("is-indeterminate", indeterminate);
+      if (indeterminate) {
+        jobBar.removeAttribute("aria-valuenow");
+        jobFill.style.width = ""; // CSS animation drives the fill
+      } else {
+        var pct = data.queued > 0
+          ? Math.min(100, Math.round(data.fingerprinted * 100 / data.queued))
+          : 0;
+        jobBar.setAttribute("aria-valuenow", String(pct));
+        jobFill.style.width = pct + "%";
+      }
+      jobCounts.textContent = jobCountsText(data);
+
+      var cur = data.activity && data.activity.current;
+      if (cur) {
+        jobNow.hidden = false;
+        jobNowPath.textContent = baseName(cur.path);
+        jobNowPath.title = cur.path || "";
+        jobNowDur.textContent = "(" + cur.duration + "s)";
+      } else {
+        jobNow.hidden = true;
+      }
+
+      var eta = etaSeconds(data.phase, data.fingerprinted, data.queued,
+                           Date.now());
+      if (data.phase === "fingerprinting" && eta != null) {
+        jobEta.hidden = false;
+        jobEta.textContent = formatEta(eta);
+      } else {
+        jobEta.hidden = true;
+      }
+      jobError.hidden = true;
+      jobIdle.hidden = true;
+    } else if (state === "error") {
+      jobError.hidden = false;
+      jobError.textContent = "Job failed: " + (data.message || "unknown error");
+      jobEta.hidden = true;
+      jobNow.hidden = true;
+      jobIdle.hidden = true;
+    } else if (state === "idle") {
+      jobIdle.hidden = false;
+      jobIdle.textContent = data.last_scan ? jobIdleText(data.last_scan) : "";
+      jobEta.hidden = true;
+      jobError.hidden = true;
+      jobNow.hidden = true;
+    }
+  }
 
   /* ---------------- queue: search + collapse (large libraries) ---------------- */
 
