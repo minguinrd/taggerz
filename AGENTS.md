@@ -2,13 +2,13 @@
 
 ## Project
 
-- Name: taggerz — self-hosted Flask tool that scans a music library for missing metadata, proposes tags via Chromaprint/AcoustID + beets, lets the user review/approve in a web UI, then writes tags and organizes approved files.
+- Name: taggerz — self-hosted Flask tool that scans a music library for missing metadata, proposes tags via Chromaprint/AcoustID + beets, auto-applies the best match (tags + organize), and keeps exceptions in a review queue.
 - Stack: Python 3.12, Flask, waitress, beets==2.14.1, Chromaprint (fpcalc), SQLite, Docker.
 - Entry points: `run.py` (waitress) → `app.create_app`. All beets imports live only in `app/beets_adapter.py`.
 
 ## Commands
 
-- Tests: `.venv/bin/pytest -v` (109 tests).
+- Tests: `.venv/bin/pytest -v` (133 tests).
 - Docker build: `docker build -t taggerz .`
 - Docker run (smoke): `docker compose up -d --build && curl -fsS http://127.0.0.1:8080/ >/dev/null && docker compose down -v`
 - Fixture regen: `tests/fixtures/make_fixtures.sh` (requires ffmpeg).
@@ -17,7 +17,7 @@
 ## Architecture
 
 - `app/config.py` — env-driven frozen Config (MUSIC_DIR, DATA_DIR, PORT, HOST, ACOUSTID_APP_KEY).
-- `app/models.py` / `app/db.py` — SQLite proposal queue (sticky decisions).
+- `app/models.py` / `app/db.py` — SQLite proposal queue (sticky decisions) + file_state settled-scan cache.
 - `app/beets_adapter.py` — sole beets importer: setup, read_fields, expected_path, candidates_for, apply_approved.
 - `app/scan.py` — walk + classify + rescan semantics.
 - `app/fingerprint.py` — pyacoustid only (no beets).

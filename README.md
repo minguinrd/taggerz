@@ -1,9 +1,9 @@
 # taggerz
 
 A self-hosted web tool that scans a music library for missing metadata,
-proposes tags via Chromaprint/AcoustID + beets, lets you review every
-change in a browser, then writes tags and organizes approved files —
-never touching a file without approval.
+proposes tags via Chromaprint/AcoustID + beets, then applies the best
+match automatically — writing tags and organizing files — while
+anything it can't decide waits in a browser queue.
 
 ## What it does
 
@@ -12,10 +12,13 @@ never touching a file without approval.
    organize template. Read-only.
 2. **Fingerprint** — runs Chromaprint (`fpcalc`) and looks up AcoustID →
    MusicBrainz, generating candidate tags via beets.
-3. **Review** — queue grouped by album, with match scores, edit forms, skip,
-   retry, and bulk approve-per-album.
-4. **Approve** — writes tags and moves the file into the template path.
-   Collisions and changed files are surfaced as errors, never overwritten.
+3. **Queue** — files with no match, failed applies, and anything you
+   skip wait in a browser queue grouped by album, with match scores,
+   edit forms, retry, and bulk approve-per-album.
+4. **Apply** — the best match is applied automatically (tags written,
+   file moved into the template path); a destination that already
+   exists is replaced, and a file changed on disk since the scan is
+   rejected, not clobbered.
 
 ## Quick start
 
@@ -27,12 +30,13 @@ Open <http://localhost:8080>. Put your music in `./music` (mounted read-write
 at `/music`). The container runs as your `UID`/`GID` (from `.env`, defaulting
 to `1000:1000`) so files it writes to the mount stay owned by you.
 
-## Review flow
+## Flow
 
 ```
-Scan → proposals (pending) → fingerprint → awaiting-review
-  └─ approve candidate / edit & approve / move-only / skip
-       └─ done  (or error → retry)
+Scan (settled files skipped — no tag re-reads) → fingerprint → best
+match auto-applied → done
+  └─ no match / apply error / your skip → queue (manual approve,
+     edit, retry, bulk approve still available)
 ```
 
 ## Configuration
@@ -57,12 +61,14 @@ Edit `/data/config.yaml` (in the `taggerz-data` volume) — `paths.default`,
 
 ## Safety guarantees
 
-- No writes to audio files without an explicit approve.
-- Never deletes files; moves only, on approve.
-- Never overwrites: a destination that already exists fails with a
-  `destination exists` badge and stays open.
-- A file changed on disk between scan and approve is rejected, not overwritten.
-- Failed applies leave the file at its original path and the proposal open.
+- Scans never write to audio files — they only read tags and stats.
+- A file changed on disk between scan and apply is rejected
+  (`file changed`), never clobbered.
+- Moves replace an existing destination (the displaced copy is
+  overwritten); the source file is never deleted in place — it moves.
+- Failed applies leave the source at its original path, parked as an
+  error, retryable from the queue.
+- Anything left in the queue is written only when you approve it.
 
 ## Troubleshooting
 
