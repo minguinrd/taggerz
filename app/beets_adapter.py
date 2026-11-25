@@ -191,6 +191,16 @@ def candidates_for(path: Path, ids: list[str]) -> list[dict]:
     return out
 
 
+def _remove_library_row_at(path: Path) -> None:
+    """Remove beets library rows pointing at ``path`` (files untouched)."""
+    for it in list(lib().items()):
+        raw = it.path
+        it_path = Path(os.fsdecode(bytes(raw))) if isinstance(
+            raw, (bytes, bytearray)) else Path(raw)
+        if it_path == path:
+            it.remove(delete=False)
+
+
 def apply_approved(path: Path, fields: dict | None, *, move_only: bool,
                   expect: tuple[float, int] | None, beets_item_id: int | None) -> tuple[Path, int | None]:
     """Collision-safe write + organize. Returns (dest, item_id)."""
@@ -225,9 +235,8 @@ def apply_approved(path: Path, fields: dict | None, *, move_only: bool,
     else:
         dest = Path(dest)
 
-    # 3. Collision check (before any write / library row).
-    if dest != path and dest.exists():
-        raise DestinationExists()
+    # 3. (Former collision check removed: an existing destination is now
+    # replaced at move time — step 6 — never before the tag write.)
 
     # 4. Library sync.
     reused = None
@@ -256,8 +265,18 @@ def apply_approved(path: Path, fields: dict | None, *, move_only: bool,
         if not item.try_write():
             raise ApplyFailed("failed to write tags", item_id=item.id)
 
-    # 6. Move.
+    # 6. Move. An existing destination is replaced (spec: overwrite).
+    # Destruction happens only here, after the tag write succeeded; with the
+    # path free, item.move() lands exactly at dest instead of beets'
+    # uniquified "dest.1".
     if dest != path:
+        if dest.exists():
+            _remove_library_row_at(dest)
+            try:
+                dest.unlink()
+            except OSError:
+                raise ApplyFailed("failed to replace destination",
+                                  item_id=item.id)
         try:
             item.move()
         except OSError:

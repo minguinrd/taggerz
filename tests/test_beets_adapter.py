@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import mediafile
 import pytest
 
@@ -120,19 +122,56 @@ def test_happy_path_writes_tags_and_moves(cfg, make_track):
     assert len(list(beets_adapter.lib().items())) == 1
 
 
-def test_collision_destination_never_overwritten(cfg, make_track):
+def test_collision_destination_overwritten(cfg, make_track):
     p = make_track(cfg.music_dir, "a.flac", title="T", artist="A", album="B",
                    albumartist="A", track=1)
     dest = cfg.music_dir / "A" / "B" / "01 - T.flac"
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(b"EXISTING")
-    with pytest.raises(beets_adapter.DestinationExists):
-        beets_adapter.apply_approved(p, {"title": "T"}, move_only=False,
-                                     expect=None, beets_item_id=None)
-    assert dest.read_bytes() == b"EXISTING"
+    got, item_id = beets_adapter.apply_approved(
+        p, {"title": "T"}, move_only=False, expect=None, beets_item_id=None)
+    assert got == dest
+    assert dest.exists() and not p.exists()          # moved, not uniquified
+    assert dest.read_bytes() != b"EXISTING"
+    assert mediafile.MediaFile(str(dest)).title == "T"
+    assert not (dest.parent / "01 - T.1.flac").exists()  # beets unique_path trap
+    assert len(list(beets_adapter.lib().items())) == 1
+
+
+def test_overwrite_removes_displaced_beets_row(cfg, make_track):
+    import os
+    p = make_track(cfg.music_dir, "a.flac", title="T", artist="A", album="B",
+                   albumartist="A", track=1)
+    dest = make_track(cfg.music_dir, "A/B/01 - T.flac", title="T", artist="A",
+                      album="B", albumartist="A", track=1)
+    displaced = beets_adapter.Item.from_path(dest)
+    displaced._db = beets_adapter.lib()
+    beets_adapter.lib().add(displaced)               # beets auto-assigns the id
+    assert len(list(beets_adapter.lib().items())) == 1
+    got, _ = beets_adapter.apply_approved(
+        p, None, move_only=True, expect=None, beets_item_id=None)
+    assert got == dest and dest.exists() and not p.exists()
+    items = list(beets_adapter.lib().items())
+    assert len(items) == 1                            # displaced row removed
+    assert Path(os.fsdecode(bytes(items[0].path))) == dest
+    assert mediafile.MediaFile(str(dest)).title == "T"  # source content won
+
+
+def test_write_failure_leaves_existing_destination_intact(cfg, make_track,
+                                                          monkeypatch):
+    p = make_track(cfg.music_dir, "a.flac", title="T", artist="A", album="B",
+                   albumartist="A", track=1)
+    dest = make_track(cfg.music_dir, "A/B/01 - T.flac", title="T", artist="A",
+                      album="B", albumartist="A", track=1)
+    monkeypatch.setattr(beets_adapter.Item, "try_write",
+                        lambda self, *a, **k: False)
+    with pytest.raises(beets_adapter.ApplyFailed):
+        beets_adapter.apply_approved(
+            p, {"title": "T"}, move_only=False, expect=None, beets_item_id=None)
+    # destruction is deferred to move time: a failed write never ate dest
+    assert dest.exists()
+    assert mediafile.MediaFile(str(dest)).title == "T"
     assert p.exists()
-    assert mediafile.MediaFile(str(p)).title == "T"  # source tags untouched
-    assert list(beets_adapter.lib().items()) == []
 
 
 def test_file_changed_rejected(cfg, make_track):
