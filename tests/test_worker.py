@@ -20,10 +20,13 @@ def test_scan_sync_produces_reviewable_proposals(cfg, make_track, monkeypatch):
     make_track(cfg.music_dir, "untagged.flac")
     monkeypatch.setattr(worker, "recording_ids", lambda p, key: ["rid"])
     monkeypatch.setattr(worker, "candidates_for", lambda p, ids: [{"title": "T"}])
+    monkeypatch.setattr(beets_adapter, "apply_approved",
+                        lambda path, fields, *, move_only, expect,
+                        beets_item_id: (path, None))
     out = worker.run_scan_sync(cfg)
     conn = _conn(cfg)
     p = db.get_by_path(conn, str(cfg.music_dir / "untagged.flac"))
-    assert p.status == "awaiting-review"
+    assert p.status == "done"
     assert p.candidates[0]["title"] == "T"
     assert out["fingerprinted"] == 1
     conn.close()
@@ -80,13 +83,16 @@ def test_fingerprint_error_parks_proposal_and_continues(cfg, make_track, monkeyp
     conn.close()
     # run full scan to enqueue needs-tags
     scan.run(cfg)
+    monkeypatch.setattr(beets_adapter, "apply_approved",
+                        lambda path, fields, *, move_only, expect,
+                        beets_item_id: (path, None))
     worker.run_fingerprint_sync(cfg)
     conn = _conn(cfg)
     pa = db.get_by_path(conn, str(cfg.music_dir / "a.flac"))
     pb = db.get_by_path(conn, str(cfg.music_dir / "b.flac"))
     assert pa.status == "error"
     assert "boom" in (pa.error or "")
-    assert pb.status == "awaiting-review"
+    assert pb.status == "done"
     conn.close()
 
 
@@ -108,10 +114,13 @@ def test_pending_rows_are_resumed(cfg, make_track, monkeypatch):
     conn.close()
     monkeypatch.setattr(worker, "recording_ids", lambda p, key: ["rid"])
     monkeypatch.setattr(worker, "candidates_for", lambda p, ids: [{"title": "T"}])
+    monkeypatch.setattr(beets_adapter, "apply_approved",
+                        lambda path, fields, *, move_only, expect,
+                        beets_item_id: (path, None))
     worker.run_fingerprint_sync(cfg)
     conn = _conn(cfg)
     p = db.get_by_path(conn, str(cfg.music_dir / "untagged.flac"))
-    assert p.status == "awaiting-review"
+    assert p.status == "done"
     conn.close()
 
 
@@ -206,13 +215,16 @@ def test_unexpected_error_parks_file_and_continues(cfg, monkeypatch):
         return [{"title": "T"}]
 
     monkeypatch.setattr(worker, "candidates_for", flaky)
+    monkeypatch.setattr(beets_adapter, "apply_approved",
+                        lambda path, fields, *, move_only, expect,
+                        beets_item_id: (path, None))
     worker.run_fingerprint_sync(cfg)
 
     conn = _conn(cfg)
     a = db.get_by_path(conn, "/m/a.flac")
     b = db.get_by_path(conn, "/m/b.flac")
     assert a.status == "error" and "KeyError" in a.error
-    assert b.status == "awaiting-review" and b.candidates[0]["title"] == "T"
+    assert b.status == "done" and b.candidates[0]["title"] == "T"
     # the pass still completes: scan row not left mid-flight
     assert db.latest_scan(conn)["phase"] == "done"
     conn.close()
@@ -320,4 +332,95 @@ def test_apply_refreshes_row_expect_after_success(cfg, make_track,
     row = db.get_by_path(conn, str(p))
     assert row.status == "done"
     assert (row.mtime, row.size) == (st.st_mtime, st.st_size)  # truthful expect
+    conn.close()
+
+
+def test_auto_approves_best_match_end_to_end(cfg, make_track, monkeypatch):
+    make_track(cfg.music_dir, "untagged.flac")
+    scan.run(cfg)
+    monkeypatch.setattr(worker, "recording_ids", lambda path, key: ["rid"])
+
+    def cands(path, ids):
+        low = {f: None for f in beets_adapter.CANDIDATE_FIELDS}
+        low.update({"title": "Worse", "artist": "A", "album": "B",
+                    "albumartist": "A", "track": 1, "disc": 1, "year": 2000,
+                    "score": 0.4})
+        high = {f: None for f in beets_adapter.CANDIDATE_FIELDS}
+        high.update({"title": "Best", "artist": "A", "album": "B",
+                     "albumartist": "A", "track": 1, "disc": 1, "year": 2000,
+                     "score": 0.95})
+        return [low, high]
+
+    monkeypatch.setattr(worker, "candidates_for", cands)
+    worker.run_scan_sync(cfg)
+    conn = _conn(cfg)
+    row = db.get_by_path(conn, str(cfg.music_dir / "untagged.flac"))
+    assert row.status == "done"
+    assert row.candidates[0]["title"] == "Worse"   # stored candidates untouched
+    conn.close()
+    dest = cfg.music_dir / "A" / "B" / "01 - Best.flac"
+    import mediafile
+    assert dest.exists()
+    assert mediafile.MediaFile(str(dest)).title == "Best"
+
+
+def test_auto_approve_missing_and_tied_scores_do_not_crash(cfg, make_track,
+                                                           monkeypatch):
+    make_track(cfg.music_dir, "untagged.flac")
+    scan.run(cfg)
+    monkeypatch.setattr(worker, "recording_ids", lambda path, key: ["rid"])
+
+    def cands(path, ids):
+        first = {f: None for f in beets_adapter.CANDIDATE_FIELDS}
+        first.update({"title": "First", "artist": "A", "album": "B",
+                      "albumartist": "A", "track": 1, "disc": 1, "year": 2000})
+        # no "score" key at all — max() must not KeyError
+        second = dict(first)
+        second.update({"title": "Second", "score": None})  # None must not TypeError
+        return [first, second]
+
+    monkeypatch.setattr(worker, "candidates_for", cands)
+    worker.run_scan_sync(cfg)
+    conn = _conn(cfg)
+    row = db.get_by_path(conn, str(cfg.music_dir / "untagged.flac"))
+    assert row.status == "done"
+    conn.close()
+    assert (cfg.music_dir / "A" / "B" / "01 - First.flac").exists()
+    assert not (cfg.music_dir / "A" / "B" / "01 - Second.flac").exists()
+
+
+def test_auto_approve_persists_beets_item_id(cfg, make_track, monkeypatch):
+    make_track(cfg.music_dir, "untagged.flac")
+    scan.run(cfg)
+    monkeypatch.setattr(worker, "recording_ids", lambda path, key: ["rid"])
+    monkeypatch.setattr(worker, "candidates_for",
+                        lambda path, ids: [{"title": "T", "score": 0.9}])
+    monkeypatch.setattr(beets_adapter, "apply_approved",
+                        lambda path, fields, *, move_only, expect,
+                        beets_item_id: (path, 42))
+    worker.run_scan_sync(cfg)
+    conn = _conn(cfg)
+    row = db.get_by_path(conn, str(cfg.music_dir / "untagged.flac"))
+    assert row.status == "done" and row.beets_item_id == 42
+    conn.close()
+
+
+def test_auto_approve_failure_parks_with_item_id(cfg, make_track,
+                                                 monkeypatch):
+    make_track(cfg.music_dir, "untagged.flac")
+    scan.run(cfg)
+    monkeypatch.setattr(worker, "recording_ids", lambda path, key: ["rid"])
+    monkeypatch.setattr(worker, "candidates_for",
+                        lambda path, ids: [{"title": "T", "score": 0.9}])
+
+    def boom(path, fields, *, move_only, expect, beets_item_id):
+        raise beets_adapter.ApplyFailed("failed to move file", item_id=7)
+
+    monkeypatch.setattr(beets_adapter, "apply_approved", boom)
+    worker.run_scan_sync(cfg)
+    conn = _conn(cfg)
+    row = db.get_by_path(conn, str(cfg.music_dir / "untagged.flac"))
+    assert row.status == "error"
+    assert row.error == "failed to move file" and row.beets_item_id == 7
+    assert db.latest_scan(conn)["phase"] == "done"   # job still completes
     conn.close()

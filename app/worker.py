@@ -10,6 +10,7 @@ from pathlib import Path
 
 from app import activity, db, scan
 from app.beets_adapter import (
+    CANDIDATE_FIELDS,
     ApplyFailed,
     FileChanged,
     candidates_for,
@@ -21,6 +22,7 @@ from app.models import (
     KIND_MANUAL,
     KIND_ORGANIZE_ONLY,
     KIND_UNIDENTIFIED,
+    STATUS_AWAITING_REVIEW,
     STATUS_DONE,
     STATUS_ERROR,
     STATUS_PENDING,
@@ -41,6 +43,17 @@ _db_path = None
 def _set_db_path(cfg: Config) -> None:
     global _db_path
     _db_path = cfg.db_path
+
+
+def _best_candidate(cands: list[dict]) -> dict:
+    """Highest-scoring candidate; absent/None scores rank below any number.
+
+    Ties resolve to the first candidate (``max`` is stable).
+    """
+    def _score(c):
+        sc = c.get("score")
+        return sc if isinstance(sc, (int, float)) else -1.0
+    return max(cands, key=_score)
 
 
 def _finish_apply(conn, row, dest: Path, item_id: int | None) -> None:
@@ -188,6 +201,39 @@ def run_fingerprint_sync(cfg: Config) -> dict:
             _fingerprinted += 1
             if scan_id is not None:
                 db.update_scan(conn, scan_id, phase="fingerprinting",
+                               fingerprinted=_fingerprinted, errors=_errors)
+
+        # Phase 2: auto-approve. Every awaiting-review row with candidates
+        # (global scope: also heals reopened and legacy rows) gets its best
+        # match written and organized.
+        _phase = "applying"
+        if scan_id is not None:
+            db.update_scan(conn, scan_id, phase="applying",
+                           fingerprinted=_fingerprinted, errors=_errors)
+        for prop in list(db.list_by_status(conn, (STATUS_AWAITING_REVIEW,))):
+            if not prop.candidates or prop.kind == KIND_ORGANIZE_ONLY:
+                continue
+            best = _best_candidate(prop.candidates)
+            # Raw candidates carry score/recommendation: never persist those.
+            fields = {f: best.get(f) for f in CANDIDATE_FIELDS}
+            activity.start("approve", prop.path)
+            try:
+                dest, item_id = beets_adapter.apply_approved(
+                    Path(prop.path), fields, move_only=False,
+                    expect=(prop.mtime, prop.size),
+                    beets_item_id=prop.beets_item_id,
+                )
+            except Exception as exc:
+                if not isinstance(exc, (ApplyFailed, FileChanged)):
+                    traceback.print_exc()
+                msg = _fail_apply(conn, prop, exc)
+                activity.finish(ok=False, detail=msg)
+                _errors += 1
+            else:
+                _finish_apply(conn, prop, dest, item_id)
+                activity.finish(ok=True, detail=f"→ {dest}")
+            if scan_id is not None:
+                db.update_scan(conn, scan_id, phase="applying",
                                fingerprinted=_fingerprinted, errors=_errors)
 
         if scan_id is not None:
