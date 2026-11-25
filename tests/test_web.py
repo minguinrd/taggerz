@@ -1,4 +1,6 @@
 import os
+import re
+import time
 
 import pytest
 
@@ -651,3 +653,76 @@ def test_queue_search_is_server_side(cfg, make_track, client):
     # no-results state, never a blank page
     h2 = client.get("/?q=zzz-nothing").data.decode()
     assert "No matching files" in h2
+
+
+# --- job progress section -------------------------------------------------
+
+
+def _job_status(**over):
+    base = {"running": False, "phase": "idle", "seen": 0, "queued": 0,
+            "fingerprinted": 0, "errors": 0, "message": None,
+            "last_scan": None,
+            "activity": {"current": None, "recent": []}}
+    base.update(over)
+    return base
+
+
+def _seed_scan(cfg, **fields):
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    sid = db.start_scan(conn, kind="scan")
+    db.update_scan(conn, sid, **fields)
+    conn.close()
+    return sid
+
+
+_SCAN_EPOCH = time.mktime((2026, 11, 23, 14, 5, 0, 0, 0, -1))  # local 14:05
+
+
+def test_queue_job_section_hidden_without_scans(cfg, client, monkeypatch):
+    monkeypatch.setattr(worker, "status", _job_status)
+    html = client.get("/").data.decode()
+    assert re.search(r'<section id="job-progress"[^>]*\shidden', html)
+    assert 'data-state="hidden"' in html
+
+
+def test_queue_job_section_idle_renders_last_scan_from_db(cfg, client, monkeypatch):
+    # worker.status() claims no last_scan (global DB path unset); the DB row wins
+    monkeypatch.setattr(worker, "status", _job_status)
+    _seed_scan(cfg, phase="done", status="done", seen=1204, queued=300,
+               fingerprinted=300, errors=12, started_at=_SCAN_EPOCH)
+    html = client.get("/").data.decode()
+    assert 'data-state="idle"' in html
+    assert "Last scan: 14:05 · 1,204 files · 12 errors" in html
+
+
+def test_queue_job_section_running_renders_counts_now_and_progress(
+        cfg, client, monkeypatch):
+    monkeypatch.setattr(worker, "status", lambda: _job_status(
+        running=True, phase="fingerprinting", fingerprinted=1240,
+        queued=3100, errors=12,
+        activity={"current": {"op": "fingerprint",
+                              "path": "/music/Album/04 - Track.flac",
+                              "duration": 1.8},
+                  "recent": []}))
+    html = client.get("/").data.decode()
+    assert 'data-state="running"' in html
+    assert "1,240 / 3,100 files · 12 errors" in html
+    assert 'aria-valuenow="40"' in html
+    assert "04 - Track.flac" in html
+    assert "(1.8s)" in html
+    # single live region only (the dock's); no second announcement channel
+    assert html.count("aria-live") == 1
+
+
+def test_queue_job_section_error_shows_message(cfg, client, monkeypatch):
+    monkeypatch.setattr(worker, "status", lambda: _job_status(
+        phase="error", message="AcoustID HTTP 503"))
+    html = client.get("/").data.decode()
+    assert 'data-state="error"' in html
+    assert "Job failed: AcoustID HTTP 503" in html
+
+
+def test_format_scan_time_returns_local_hhmm():
+    from app import web
+    assert web.format_scan_time(_SCAN_EPOCH) == "14:05"

@@ -74,4 +74,5 @@ def create_app(cfg: Config | None = None) -> Flask:
     app.jinja_env.globals["group_key"] = web.group_key
     app.jinja_env.globals["badge"] = web._badge
     app.jinja_env.globals["album_key_value"] = web.album_key_value
+    app.jinja_env.globals["format_scan_time"] = web.format_scan_time
     return app

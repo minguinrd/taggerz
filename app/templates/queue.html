@@ -24,6 +24,38 @@
   </div>
 </header>
 
+<section id="job-progress" class="job-progress" data-state="{{ job.state }}"
+         aria-label="Job progress"{% if job.state == 'hidden' %} hidden{% endif %}>
+  <div class="job-steps" aria-hidden="true">
+    <span class="job-step {{ job.steps.scan }}">✓ Scan</span>
+    <span class="job-step {{ job.steps.fingerprint }}">● Fingerprinting</span>
+    <span class="job-step {{ job.steps.done }}">○ Done</span>
+  </div>
+  <div id="job-bar" class="job-bar{% if job.state == 'running' and job.phase == 'scanning' %} is-indeterminate{% endif %}"
+       role="progressbar" aria-valuemin="0" aria-valuemax="100"
+       {% if job.state == 'running' and job.phase != 'scanning' and job.queued %}aria-valuenow="{{ job.pct }}"{% endif %}
+       aria-label="Fingerprinting progress">
+    <div id="job-bar-fill" class="job-bar-fill"{% if job.queued %} style="width: {{ job.pct }}%"{% endif %}></div>
+  </div>
+  <p id="job-counts" class="job-counts">{% if job.state == 'running' %}{% if job.phase == 'scanning' %}{{ '{:,}'.format(job.seen) }} files seen · {{ job.errors }} errors{% else %}{{ '{:,}'.format(job.fingerprinted) }} / {{ '{:,}'.format(job.queued) }} files · {{ job.errors }} errors{% endif %}{% endif %}</p>
+  {% if job.state == 'running' and job.activity.current %}
+  <p id="job-now" class="job-now">Now: <span id="job-now-path" title="{{ job.activity.current.path }}">{{ job.activity.current.path.split('/')[-1] }}</span> <span id="job-now-dur">({{ job.activity.current.duration }}s)</span></p>
+  {% else %}
+  <p id="job-now" class="job-now" hidden></p>
+  {% endif %}
+  <p id="job-eta" class="job-eta" hidden></p>
+  {% if job.state == 'error' %}
+  <p id="job-error" class="job-error">Job failed: {{ job.message or 'unknown error' }}</p>
+  {% else %}
+  <p id="job-error" class="job-error" hidden></p>
+  {% endif %}
+  {% if job.state == 'idle' %}
+  <p id="job-idle" class="job-idle">Last scan: {{ format_scan_time(job.last_scan.started_at or job.last_scan.finished_at) }} · {{ '{:,}'.format(job.last_scan.seen) }} files · {{ job.last_scan.errors }} errors</p>
+  {% else %}
+  <p id="job-idle" class="job-idle" hidden></p>
+  {% endif %}
+</section>
+
 <nav id="queue-tabs" class="tabs" aria-label="Queue filters">
   <a class="tab{{ ' active' if tab == 'open' }}" href="{{ url_for('web.queue_view') }}" data-tab="open" data-count="{{ counts.open }}" aria-current="{{ 'page' if tab == 'open' else 'false' }}">Open <span class="tab-count">{{ '{:,}'.format(counts.open) }}</span></a>
   <a class="tab{{ ' active' if tab == 'errors' }}" href="{{ url_for('web.queue_view', status='error') }}" data-tab="errors" data-count="{{ counts.errors }}" aria-current="{{ 'page' if tab == 'errors' else 'false' }}">Errors <span class="tab-count">{{ '{:,}'.format(counts.errors) }}</span></a>

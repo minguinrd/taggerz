@@ -1,6 +1,7 @@
 """Web routes: queue, scan control, status, open-by-path."""
 
 import html
+import time
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
@@ -76,6 +77,20 @@ def _badge(proposal) -> str:
 QUEUE_PAGE_SIZE = 50
 
 
+def format_scan_time(epoch: float) -> str:
+    """Local wall-clock time for a scan timestamp, as ``HH:MM``."""
+    return time.strftime("%H:%M", time.localtime(epoch))
+
+
+def _step_classes(phase: str) -> dict:
+    """Stepper item classes for the job-progress section, keyed scan/fingerprint/done."""
+    if phase == "scanning":
+        return {"scan": "is-active", "fingerprint": "is-todo", "done": "is-todo"}
+    if phase == "fingerprinting":
+        return {"scan": "is-done", "fingerprint": "is-active", "done": "is-todo"}
+    return {"scan": "is-done", "fingerprint": "is-done", "done": "is-active"}
+
+
 def _paginate_groups(group_list, page_size):
     """Pack (key, items) groups into pages of rows.
 
@@ -123,7 +138,23 @@ def queue_view():
         "skipped": len(db.list_by_status(conn, (STATUS_SKIPPED,))),
         "done": len(db.list_by_status(conn, (STATUS_DONE,))),
     }
+    # Job-progress section: live status with last_scan re-read from this
+    # connection (worker.status()'s global DB path may be unset or stale).
+    job = worker.status()
+    job["last_scan"] = db.latest_scan(conn)
     conn.close()
+
+    if job["running"]:
+        job["state"] = "running"
+    elif job["phase"] == "error":
+        job["state"] = "error"
+    elif job["last_scan"]:
+        job["state"] = "idle"
+    else:
+        job["state"] = "hidden"
+    job["steps"] = _step_classes(job["phase"])
+    job["pct"] = (min(100, round(job["fingerprinted"] * 100 / job["queued"]))
+                  if job["queued"] else 0)
 
     if requested == STATUS_SKIPPED:
         tab = "skipped"
@@ -192,6 +223,7 @@ def queue_view():
 
     return render_template(
         "queue.html",
+        job=job,
         page_items=page_items,
         full_groups=dict(group_list),
         status_filter=requested if requested in STATUSES else "",
