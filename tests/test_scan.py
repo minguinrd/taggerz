@@ -5,6 +5,7 @@ import pytest
 
 import app.db as db
 import app.scan as scan
+from app import beets_adapter
 
 
 def _conn(cfg):
@@ -167,3 +168,87 @@ def test_scan_does_not_modify_files(cfg, make_track):
     scan.run(cfg)
     after = {p: (p.stat().st_mtime, p.stat().st_size) for p in cfg.music_dir.rglob("*") if p.is_file()}
     assert before == after
+
+
+def test_rescan_settled_library_reads_nothing(cfg, make_track, monkeypatch):
+    _seed_tree(cfg, make_track)
+    scan.run(cfg)
+    calls = []
+    real = beets_adapter.read_fields
+    monkeypatch.setattr(beets_adapter, "read_fields",
+                        lambda p: (calls.append(str(p)), real(p))[1])
+    scan.run(cfg)
+    assert calls == []          # parked rows + settled correct file: no reads
+
+
+def test_scan_records_file_state_for_rowless_correct_file(cfg, make_track):
+    _seed_tree(cfg, make_track)
+    scan.run(cfg)
+    good = cfg.music_dir / "Artist" / "Album" / "01 - Song.flac"
+    conn = _conn(cfg)
+    st = good.stat()
+    assert db.file_state_get(conn, str(good)) == (st.st_mtime, st.st_size)
+    assert db.get_by_path(conn, str(good)) is None   # still no queue row
+    conn.close()
+
+
+def test_erroring_correct_file_retried_next_scan(cfg, make_track, monkeypatch):
+    _seed_tree(cfg, make_track)
+    good = cfg.music_dir / "Artist" / "Album" / "01 - Song.flac"
+    calls = []
+    real = beets_adapter.read_fields
+
+    def flaky(p):
+        calls.append(str(p))
+        if p == good and calls.count(str(good)) == 1:
+            raise RuntimeError("boom")
+        return real(p)
+
+    monkeypatch.setattr(beets_adapter, "read_fields", flaky)
+    stats1 = scan.run(cfg)
+    assert stats1["errors"] == 1
+    conn = _conn(cfg)
+    assert db.file_state_get(conn, str(good)) is None   # NOT recorded settled
+    conn.close()
+    stats2 = scan.run(cfg)
+    assert stats2["errors"] == 0                        # retried, now succeeds
+    assert calls.count(str(good)) == 2
+    conn = _conn(cfg)
+    assert db.file_state_get(conn, str(good)) is not None
+    conn.close()
+
+
+def test_parked_row_skipped_even_when_file_changes(cfg, make_track,
+                                                   monkeypatch):
+    _seed_tree(cfg, make_track)
+    scan.run(cfg)
+    conn = _conn(cfg)
+    untagged = cfg.music_dir / "untagged.flac"
+    row = db.get_by_path(conn, str(untagged))
+    db.update_status(conn, row.id, "skipped")
+    conn.close()
+    os.utime(untagged, (untagged.stat().st_mtime + 100,
+                        untagged.stat().st_mtime + 100))
+    calls = []
+    real = beets_adapter.read_fields
+    monkeypatch.setattr(beets_adapter, "read_fields",
+                        lambda p: (calls.append(str(p)), real(p))[1])
+    scan.run(cfg)
+    assert calls == []           # parked check fires before file_state/read
+    conn = _conn(cfg)
+    assert db.get_by_path(conn, str(untagged)).status == "skipped"
+    conn.close()
+
+
+def test_file_state_swept_for_deleted_files(cfg, make_track):
+    _seed_tree(cfg, make_track)
+    scan.run(cfg)
+    conn = _conn(cfg)
+    loose = str(cfg.music_dir / "loose.flac")
+    assert db.file_state_get(conn, loose) is not None
+    conn.close()
+    (cfg.music_dir / "loose.flac").unlink()
+    scan.run(cfg)
+    conn = _conn(cfg)
+    assert db.file_state_get(conn, loose) is None
+    conn.close()

@@ -70,6 +70,7 @@ def run(cfg: Config) -> dict:
     audio_paths = list(walk(cfg.music_dir))
     seen = len(audio_paths)
     audio_strs = {str(p) for p in audio_paths}
+    db.file_state_sweep(conn, audio_strs)
 
     # Park open rows whose file has vanished.
     for row in db.list_all(conn):
@@ -81,22 +82,37 @@ def run(cfg: Config) -> dict:
 
     for p in audio_paths:
         try:
+            st = p.stat()
+        except OSError:
+            errors += 1                    # vanished mid-walk: counted, never
+            continue                       # crashes the scan
+        mtime = float(st.st_mtime)
+        size = int(st.st_size)
+
+        # Decided rows stay parked (skipped/error stay; pending/awaiting
+        # stay as-is unless vanished, handled above) — no tag read needed.
+        row = db.get_by_path(conn, str(p))
+        if row is not None and row.status in (
+                STATUS_SKIPPED, STATUS_ERROR, STATUS_PENDING,
+                STATUS_AWAITING_REVIEW):
+            continue
+        # Settled: unchanged since the last fully successful read.
+        if db.file_state_get(conn, str(p)) == (mtime, size):
+            continue
+
+        try:
             fields = beets_adapter.read_fields(p)
         except Exception:
             errors += 1
-            continue
+            continue                       # not recorded -> retried next scan
         try:
             expected = None if missing_core(fields) else beets_adapter.expected_path(p)
         except Exception:
             errors += 1
             continue
         kind = classify(fields, p, expected)
+        db.file_state_set(conn, str(p), mtime, size)  # only after full success
 
-        st = p.stat()
-        mtime = float(st.st_mtime)
-        size = int(st.st_size)
-
-        row = db.get_by_path(conn, str(p))
         if row is None:
             if kind is None:
                 continue
@@ -105,13 +121,7 @@ def run(cfg: Config) -> dict:
             queued += 1
             continue
 
-        # Existing row: apply stickiness.
-        if row.status in (STATUS_SKIPPED, STATUS_ERROR, STATUS_PENDING,
-                          STATUS_AWAITING_REVIEW):
-            # skipped/error stay parked; pending/awaiting stay as-is (unless
-            # vanished, handled above).
-            continue
-        if row.status == STATUS_DONE:
+        if row.status == STATUS_DONE:      # the only status reaching here
             if (row.mtime, row.size) == (mtime, size):
                 continue
             if kind is None:
