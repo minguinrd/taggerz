@@ -9,12 +9,19 @@ import traceback
 from pathlib import Path
 
 from app import activity, db, scan
-from app.beets_adapter import candidates_for, default_acoustid_key
+from app.beets_adapter import (
+    ApplyFailed,
+    FileChanged,
+    candidates_for,
+    default_acoustid_key,
+)
 from app.config import Config
 from app.fingerprint import AcoustidFailure, recording_ids
 from app.models import (
     KIND_MANUAL,
+    KIND_ORGANIZE_ONLY,
     KIND_UNIDENTIFIED,
+    STATUS_DONE,
     STATUS_ERROR,
     STATUS_PENDING,
 )
@@ -34,6 +41,47 @@ _db_path = None
 def _set_db_path(cfg: Config) -> None:
     global _db_path
     _db_path = cfg.db_path
+
+
+def _finish_apply(conn, row, dest: Path, item_id: int | None) -> None:
+    """Mark an auto-applied row done and settle its destination.
+
+    The row's mtime/size are refreshed from the destination so its expect
+    guard stays truthful; ``file_state`` is recorded for ``dest`` so the
+    next scan skips it, and the source entry is dropped when the path moved.
+    A stat failure is swallowed: the apply already succeeded, and the next
+    scan simply re-reads the file.
+    """
+    try:
+        st = Path(dest).stat()
+    except OSError:
+        st = None
+    if st is not None:
+        db.update_status(conn, row.id, STATUS_DONE,
+                         mtime=float(st.st_mtime), size=int(st.st_size))
+    else:
+        db.update_status(conn, row.id, STATUS_DONE)
+    if item_id is not None:
+        db.set_beets_item_id(conn, row.id, item_id)
+    if st is not None:
+        db.file_state_set(conn, str(dest), float(st.st_mtime),
+                          int(st.st_size))
+    if str(row.path) != str(dest):
+        db.file_state_drop(conn, str(row.path))
+
+
+def _fail_apply(conn, row, exc: Exception) -> str:
+    """Park a row whose auto-apply failed; return the stored message."""
+    if isinstance(exc, FileChanged):
+        msg = str(exc) or "file changed"
+    elif isinstance(exc, ApplyFailed):
+        msg = str(exc)
+    else:
+        msg = f"{type(exc).__name__}: {exc}"
+    db.update_status(conn, row.id, STATUS_ERROR, error=msg)
+    if getattr(exc, "item_id", None) is not None:
+        db.set_beets_item_id(conn, row.id, exc.item_id)
+    return msg
 
 
 def run_fingerprint_sync(cfg: Config) -> dict:
@@ -59,16 +107,49 @@ def run_fingerprint_sync(cfg: Config) -> dict:
         _seen = _queued = _fingerprinted = _errors = 0
 
     _running = True
-    _phase = "fingerprinting"
+    _phase = "applying"
     _message = None
 
     try:
+        # Phase 1: pure moves. Correctly tagged files at the wrong path are
+        # organized without fingerprinting (no match is needed to move).
+        if scan_id is not None:
+            db.update_scan(conn, scan_id, phase="applying",
+                           fingerprinted=_fingerprinted, errors=_errors)
+        for prop in list(db.list_by_status(conn, (STATUS_PENDING,))):
+            if prop.kind != KIND_ORGANIZE_ONLY:
+                continue
+            activity.start("move", prop.path)
+            try:
+                dest, item_id = beets_adapter.apply_approved(
+                    Path(prop.path), None, move_only=True,
+                    expect=(prop.mtime, prop.size),
+                    beets_item_id=prop.beets_item_id,
+                )
+            except Exception as exc:
+                # Per-file catch-all: one broken file never aborts the job.
+                if not isinstance(exc, (ApplyFailed, FileChanged)):
+                    traceback.print_exc()
+                msg = _fail_apply(conn, prop, exc)
+                activity.finish(ok=False, detail=msg)
+                _errors += 1
+            else:
+                _finish_apply(conn, prop, dest, item_id)
+                activity.finish(ok=True, detail=f"→ {dest}")
+                _fingerprinted += 1
+            if scan_id is not None:
+                db.update_scan(conn, scan_id, phase="applying",
+                               fingerprinted=_fingerprinted, errors=_errors)
+
+        _phase = "fingerprinting"
         acoustid_key = cfg.acoustid_app_key or default_acoustid_key()
         if scan_id is not None:
             db.update_scan(conn, scan_id, phase="fingerprinting",
                            fingerprinted=_fingerprinted, errors=_errors)
         pending = list(db.list_by_status(conn, (STATUS_PENDING,)))
         for prop in pending:
+            if prop.kind == KIND_ORGANIZE_ONLY:
+                continue  # phase 1 already consumed these
             activity.start("fingerprint", prop.path)
             try:
                 ids = recording_ids(Path(prop.path), acoustid_key)

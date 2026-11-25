@@ -182,6 +182,7 @@ def test_fingerprint_persists_fingerprinting_phase(cfg, monkeypatch):
     worker.run_fingerprint_sync(cfg)
     assert any(c.get("phase") == "fingerprinting" for c in calls)
     assert any(c.get("phase") == "done" for c in calls)
+    assert any(c.get("phase") == "applying" for c in calls)
 
 
 def test_unexpected_error_parks_file_and_continues(cfg, monkeypatch):
@@ -214,4 +215,109 @@ def test_unexpected_error_parks_file_and_continues(cfg, monkeypatch):
     assert b.status == "awaiting-review" and b.candidates[0]["title"] == "T"
     # the pass still completes: scan row not left mid-flight
     assert db.latest_scan(conn)["phase"] == "done"
+    conn.close()
+
+
+def test_auto_organizes_correctly_tagged_file(cfg, make_track, monkeypatch):
+    p = make_track(cfg.music_dir, "loose.flac", title="Song", artist="Artist",
+                   album="Album", albumartist="Artist", track=1)
+    scan.run(cfg)
+    fp_calls = []
+    monkeypatch.setattr(worker, "recording_ids",
+                        lambda path, key: fp_calls.append(str(path)) or ["rid"])
+    out = worker.run_fingerprint_sync(cfg)
+    dest = cfg.music_dir / "Artist" / "Album" / "01 - Song.flac"
+    assert dest.exists() and not p.exists()
+    assert fp_calls == []                        # organize-only never fingerprinted
+    conn = _conn(cfg)
+    row = db.get_by_path(conn, str(p))
+    assert row.status == "done"
+    st = dest.stat()
+    assert db.file_state_get(conn, str(dest)) == (st.st_mtime, st.st_size)
+    conn.close()
+    assert out["fingerprinted"] == 1             # phase-1 applies count toward the bar
+
+
+def test_auto_organize_overwrites_existing_destination(cfg, make_track,
+                                                       monkeypatch):
+    src = make_track(cfg.music_dir, "loose.flac", title="Song", artist="Artist",
+                     album="Album", albumartist="Artist", track=1)
+    make_track(cfg.music_dir, "Artist/Album/01 - Song.flac", title="Old",
+               artist="Artist", album="Album", albumartist="Artist", track=1)
+    scan.run(cfg)
+    monkeypatch.setattr(worker, "recording_ids", lambda path, key: [])
+    worker.run_fingerprint_sync(cfg)
+    dest = cfg.music_dir / "Artist" / "Album" / "01 - Song.flac"
+    import mediafile
+    assert mediafile.MediaFile(str(dest)).title == "Song"   # replaced, not .1
+    assert not src.exists()
+    assert not (dest.parent / "01 - Song.1.flac").exists()
+
+
+def test_phase1_apply_failure_parks_and_continues(cfg, make_track,
+                                                  monkeypatch):
+    make_track(cfg.music_dir, "l1.flac", title="S1", artist="A", album="B",
+               albumartist="A", track=1)
+    make_track(cfg.music_dir, "l2.flac", title="S2", artist="A", album="B",
+               albumartist="A", track=2)
+    scan.run(cfg)
+    calls = {"n": 0}
+
+    def fake_apply(path, fields, *, move_only, expect, beets_item_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("boom")
+        return (Path(str(path) + ".done"), None)
+
+    monkeypatch.setattr(beets_adapter, "apply_approved", fake_apply)
+    worker.run_fingerprint_sync(cfg)
+    conn = _conn(cfg)
+    rows = db.list_all(conn)
+    errs = [r for r in rows if r.status == "error"]
+    dones = [r for r in rows if r.status == "done"]
+    assert len(errs) == 1 and "RuntimeError" in errs[0].error
+    assert len(dones) == 1                       # one broken file never aborts
+    assert db.latest_scan(conn)["phase"] == "done"
+    conn.close()
+
+
+def test_apply_failure_parking_details(cfg, make_track, monkeypatch):
+    make_track(cfg.music_dir, "l1.flac", title="S1", artist="A", album="B",
+               albumartist="A", track=1)
+    make_track(cfg.music_dir, "l2.flac", title="S2", artist="A", album="B",
+               albumartist="A", track=2)
+    scan.run(cfg)
+    calls = {"n": 0}
+
+    def fake_apply(path, fields, *, move_only, expect, beets_item_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise beets_adapter.FileChanged()        # carries no message
+        raise beets_adapter.ApplyFailed("failed to move file", item_id=7)
+
+    monkeypatch.setattr(beets_adapter, "apply_approved", fake_apply)
+    worker.run_fingerprint_sync(cfg)
+    conn = _conn(cfg)
+    rows = db.list_all(conn)
+    changed = [r for r in rows if r.error == "file changed"]
+    failed = [r for r in rows if r.beets_item_id == 7]
+    assert len(changed) == 1 and changed[0].status == "error"
+    assert len(failed) == 1 and failed[0].error == "failed to move file"
+    conn.close()
+
+
+def test_apply_refreshes_row_expect_after_success(cfg, make_track,
+                                                  monkeypatch):
+    p = make_track(cfg.music_dir, "l.flac", title="S", artist="A", album="B",
+                   albumartist="A", track=1)
+    scan.run(cfg)
+    monkeypatch.setattr(beets_adapter, "apply_approved",
+                        lambda path, fields, *, move_only, expect,
+                        beets_item_id: (path, None))
+    worker.run_fingerprint_sync(cfg)
+    st = p.stat()
+    conn = _conn(cfg)
+    row = db.get_by_path(conn, str(p))
+    assert row.status == "done"
+    assert (row.mtime, row.size) == (st.st_mtime, st.st_size)  # truthful expect
     conn.close()
