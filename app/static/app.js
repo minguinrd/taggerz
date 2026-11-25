@@ -269,11 +269,17 @@
 
   var etaSamples = [];
   var etaPhase = null;
+  // state the server rendered on first paint; used when /api/status has no
+  // last_scan yet on a fresh process (worker DB path not set until a job runs)
+  var jobInitialState = jobSection
+    ? jobSection.getAttribute("data-state")
+    : null;
 
   function jobState(data) {
     if (data.running) return "running";
     if (data.phase === "error") return "error";
     if (data.last_scan) return "idle";
+    if (jobInitialState === "idle") return "idle";
     return "hidden";
   }
 
@@ -364,7 +370,7 @@
       jobCounts.textContent = jobCountsText(data);
 
       var cur = data.activity && data.activity.current;
-      if (cur) {
+      if (cur && cur.path) {
         jobNow.hidden = false;
         jobNowPath.textContent = baseName(cur.path);
         jobNowPath.title = cur.path || "";
@@ -391,7 +397,9 @@
       jobIdle.hidden = true;
     } else if (state === "idle") {
       jobIdle.hidden = false;
-      jobIdle.textContent = data.last_scan ? jobIdleText(data.last_scan) : "";
+      // on a fresh process status() may have no last_scan yet — keep the
+      // server-rendered line rather than blanking it
+      if (data.last_scan) jobIdle.textContent = jobIdleText(data.last_scan);
       jobEta.hidden = true;
       jobError.hidden = true;
       jobNow.hidden = true;

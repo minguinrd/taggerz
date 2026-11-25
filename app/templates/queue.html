@@ -38,7 +38,7 @@
     <div id="job-bar-fill" class="job-bar-fill"{% if job.queued %} style="width: {{ job.pct }}%"{% endif %}></div>
   </div>
   <p id="job-counts" class="job-counts">{% if job.state == 'running' %}{% if job.phase == 'scanning' %}{{ '{:,}'.format(job.seen) }} files seen · {{ job.errors }} errors{% else %}{{ '{:,}'.format(job.fingerprinted) }} / {{ '{:,}'.format(job.queued) }} files · {{ job.errors }} errors{% endif %}{% endif %}</p>
-  {% if job.state == 'running' and job.activity.current %}
+  {% if job.state == 'running' and job.activity.current and job.activity.current.path %}
   <p id="job-now" class="job-now">Now: <span id="job-now-path" title="{{ job.activity.current.path }}">{{ job.activity.current.path.split('/')[-1] }}</span> <span id="job-now-dur">({{ job.activity.current.duration }}s)</span></p>
   {% else %}
   <p id="job-now" class="job-now" hidden></p>

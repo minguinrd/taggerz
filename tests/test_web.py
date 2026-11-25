@@ -715,6 +715,20 @@ def test_queue_job_section_running_renders_counts_now_and_progress(
     assert html.count("aria-live") == 1
 
 
+def test_queue_job_section_running_without_path_does_not_500(cfg, client, monkeypatch):
+    # scanning phase: activity.start("scan") carries path=None — the now-line
+    # must not call .split() on it (review critical: 500 during main scan flow)
+    monkeypatch.setattr(worker, "status", lambda: _job_status(
+        running=True, phase="scanning", seen=420,
+        activity={"current": {"op": "scan", "path": None, "duration": 0.4},
+                  "recent": []}))
+    resp = client.get("/")
+    assert resp.status_code == 200
+    html = resp.data.decode()
+    assert 'data-state="running"' in html
+    assert "Now:" not in html
+
+
 def test_queue_job_section_error_shows_message(cfg, client, monkeypatch):
     monkeypatch.setattr(worker, "status", lambda: _job_status(
         phase="error", message="AcoustID HTTP 503"))
