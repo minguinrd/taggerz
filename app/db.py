@@ -45,6 +45,11 @@ CREATE TABLE IF NOT EXISTS scans (
     started_at REAL NOT NULL,
     finished_at REAL
 );
+CREATE TABLE IF NOT EXISTS file_state (
+    path TEXT PRIMARY KEY,
+    mtime REAL NOT NULL,
+    size INTEGER NOT NULL
+);
 """
 
 
@@ -198,6 +203,40 @@ def set_beets_item_id(conn: sqlite3.Connection, pid: int, item_id: int) -> None:
     conn.execute("UPDATE proposals SET beets_item_id = ? WHERE id = ?",
                  (item_id, pid))
     conn.commit()
+
+
+# -- file_state: settled-scan cache (path -> last fully-read stat) ---------
+
+def file_state_get(conn: sqlite3.Connection,
+                   path: str) -> tuple[float, int] | None:
+    row = conn.execute("SELECT mtime, size FROM file_state WHERE path = ?",
+                       (path,)).fetchone()
+    return None if row is None else (row["mtime"], row["size"])
+
+
+def file_state_set(conn: sqlite3.Connection, path: str, mtime: float,
+                   size: int) -> None:
+    conn.execute(
+        "INSERT INTO file_state (path, mtime, size) VALUES (?, ?, ?) "
+        "ON CONFLICT(path) DO UPDATE SET mtime = excluded.mtime, "
+        "size = excluded.size",
+        (path, mtime, size))
+    conn.commit()
+
+
+def file_state_drop(conn: sqlite3.Connection, path: str) -> None:
+    conn.execute("DELETE FROM file_state WHERE path = ?", (path,))
+    conn.commit()
+
+
+def file_state_sweep(conn: sqlite3.Connection, keep: set[str]) -> int:
+    """Delete every entry whose path is not in ``keep``; return the count."""
+    stale = [r["path"] for r in conn.execute("SELECT path FROM file_state")
+             if r["path"] not in keep]
+    for path in stale:
+        conn.execute("DELETE FROM file_state WHERE path = ?", (path,))
+    conn.commit()
+    return len(stale)
 
 
 def start_scan(conn: sqlite3.Connection, *, kind: str) -> int:

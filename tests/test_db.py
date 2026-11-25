@@ -242,3 +242,44 @@ def test_enqueue_same_path_preserves_kind_on_conflict(tmp_path):
                        kind="manual", current_tags={})
     assert again.id == p.id and again.kind == "needs-tags"
     conn.close()
+
+
+def test_file_state_set_get_roundtrip(tmp_path):
+    conn = _open(tmp_path)
+    db.file_state_set(conn, "/m/a.flac", 1.5, 10)
+    assert db.file_state_get(conn, "/m/a.flac") == (1.5, 10)
+    conn.close()
+
+
+def test_file_state_get_miss_returns_none(tmp_path):
+    conn = _open(tmp_path)
+    assert db.file_state_get(conn, "/m/none.flac") is None
+    conn.close()
+
+
+def test_file_state_set_overwrites(tmp_path):
+    conn = _open(tmp_path)
+    db.file_state_set(conn, "/m/a.flac", 1.5, 10)
+    db.file_state_set(conn, "/m/a.flac", 2.5, 20)
+    assert db.file_state_get(conn, "/m/a.flac") == (2.5, 20)
+    conn.close()
+
+
+def test_file_state_drop_removes_entry(tmp_path):
+    conn = _open(tmp_path)
+    db.file_state_set(conn, "/m/a.flac", 1.5, 10)
+    db.file_state_drop(conn, "/m/a.flac")
+    assert db.file_state_get(conn, "/m/a.flac") is None
+    db.file_state_drop(conn, "/m/never-set.flac")  # no-op, no raise
+    conn.close()
+
+
+def test_file_state_sweep_deletes_paths_not_in_keep(tmp_path):
+    conn = _open(tmp_path)
+    db.file_state_set(conn, "/m/keep.flac", 1.0, 1)
+    db.file_state_set(conn, "/m/gone.flac", 2.0, 2)
+    deleted = db.file_state_sweep(conn, {"/m/keep.flac"})
+    assert deleted == 1
+    assert db.file_state_get(conn, "/m/keep.flac") == (1.0, 1)
+    assert db.file_state_get(conn, "/m/gone.flac") is None
+    conn.close()
