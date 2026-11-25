@@ -8,7 +8,7 @@
 
 ## Commands
 
-- Tests: `.venv/bin/pytest -v` (108 tests).
+- Tests: `.venv/bin/pytest -v` (109 tests).
 - Docker build: `docker build -t taggerz .`
 - Docker run (smoke): `docker compose up -d --build && curl -fsS http://127.0.0.1:8080/ >/dev/null && docker compose down -v`
 - Fixture regen: `tests/fixtures/make_fixtures.sh` (requires ffmpeg).
