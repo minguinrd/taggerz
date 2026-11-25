@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS scans (
     started_at REAL NOT NULL,
     finished_at REAL
 );
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS file_state (
     path TEXT PRIMARY KEY,
     mtime REAL NOT NULL,
@@ -226,6 +230,24 @@ def file_state_set(conn: sqlite3.Connection, path: str, mtime: float,
 
 def file_state_drop(conn: sqlite3.Connection, path: str) -> None:
     conn.execute("DELETE FROM file_state WHERE path = ?", (path,))
+    conn.commit()
+
+
+def file_state_clear(conn: sqlite3.Connection) -> None:
+    conn.execute("DELETE FROM file_state")
+    conn.commit()
+
+
+def meta_get(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM meta WHERE key = ?",
+                       (key,)).fetchone()
+    return None if row is None else row["value"]
+
+
+def meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute("INSERT INTO meta (key, value) VALUES (?, ?) "
+                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                 (key, value))
     conn.commit()
 
 

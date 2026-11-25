@@ -314,7 +314,12 @@ def test_approve_collision_overwrites_destination(cfg, make_track, client):
     assert b"destination exists" not in resp2.data
 
 
-def test_skip_and_reset_roundtrip(cfg, make_track, client):
+def test_skip_and_reset_roundtrip(cfg, make_track, client, monkeypatch):
+    # reset with candidates starts a job (its apply phase would race the
+    # status assertion below), so record the start instead of running it
+    started = []
+    monkeypatch.setattr(worker, "start_job",
+                        lambda cfg, kind="scan": started.append(kind) or True)
     cand = [{f: "X" for f in beets_adapter.CANDIDATE_FIELDS}]
     p, row = _seed_proposal(cfg, make_track, candidates=cand)
     resp = client.post(f"/proposal/{row.id}/skip", follow_redirects=True)
@@ -330,6 +335,7 @@ def test_skip_and_reset_roundtrip(cfg, make_track, client):
     db.init_db(conn)
     assert db.get(conn, row.id).status == "awaiting-review"
     conn.close()
+    assert started == ["fingerprint"]
 
 
 def test_retry_without_candidates_requeues(cfg, make_track, client, monkeypatch):

@@ -4,6 +4,7 @@ All beets interaction (setup, tag reading, path templating, candidate
 generation, apply) lives here so the rest of the app stays beets-free.
 """
 
+import json
 import os
 from pathlib import Path
 
@@ -89,6 +90,20 @@ def ensure_setup(cfg: Config) -> None:
     from beets.library.library import Library
 
     _lib = Library(cfg.data_dir / "beets.db", directory=cfg.music_dir)
+
+
+def path_signature() -> str:
+    """Stable string of everything that decides a file's expected path.
+
+    The scan's settled cache is only valid for the signature it was built
+    under: a template or library-directory change must re-evaluate files.
+    """
+    from beets import config as beets_config
+
+    paths = {key: beets_config["paths"][key].as_str()
+             for key in ("default", "singleton", "comp")}
+    return json.dumps({"directory": beets_config["directory"].as_str(),
+                       "paths": paths}, sort_keys=True)
 
 
 def lib():

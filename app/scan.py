@@ -71,6 +71,12 @@ def run(cfg: Config) -> dict:
     seen = len(audio_paths)
     audio_strs = {str(p) for p in audio_paths}
     db.file_state_sweep(conn, audio_strs)
+    # The settled cache is only valid under the path config it was built
+    # with: a changed template must re-evaluate (and reorganize) files.
+    sig = beets_adapter.path_signature()
+    if db.meta_get(conn, "file_state_signature") != sig:
+        db.file_state_clear(conn)
+        db.meta_set(conn, "file_state_signature", sig)
 
     # Park open rows whose file has vanished.
     for row in db.list_all(conn):

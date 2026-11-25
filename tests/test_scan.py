@@ -252,3 +252,22 @@ def test_file_state_swept_for_deleted_files(cfg, make_track):
     conn = _conn(cfg)
     assert db.file_state_get(conn, loose) is None
     conn.close()
+
+
+def test_path_template_change_invalidates_settled_cache(cfg, make_track,
+                                                        monkeypatch):
+    # editing paths in config.yaml + restart must re-evaluate settled files,
+    # otherwise a new template never reorganizes the library
+    _seed_tree(cfg, make_track)
+    scan.run(cfg)
+    good = cfg.music_dir / "Artist" / "Album" / "01 - Song.flac"
+    calls = []
+    real = beets_adapter.read_fields
+    monkeypatch.setattr(beets_adapter, "read_fields",
+                        lambda p: (calls.append(str(p)), real(p))[1])
+    scan.run(cfg)
+    assert calls == []                               # settled, same template
+    monkeypatch.setattr(beets_adapter, "path_signature",
+                        lambda: "different-template")
+    scan.run(cfg)
+    assert str(good) in calls                        # cache dropped, re-read
