@@ -36,18 +36,18 @@ def test_queue_lists_proposals_with_badges(cfg, make_track, client):
     r2 = db.enqueue(conn, path=str(p2), mtime=1.0, size=2, kind="unidentified",
                     current_tags={})
     db.set_candidates(conn, r2.id, [], kind="unidentified")
-    # error destination exists
+    # generic error row
     p3 = make_track(cfg.music_dir, "u3.flac")
     r3 = db.enqueue(conn, path=str(p3), mtime=1.0, size=2, kind="needs-tags",
                     current_tags={})
-    db.update_status(conn, r3.id, "error", error="destination exists: /x")
+    db.update_status(conn, r3.id, "error", error="disk exploded")
     conn.close()
 
     resp = client.get("/")
     assert resp.status_code == 200
     assert b"needs tags" in resp.data or b"needs-tags" in resp.data
     assert b"unidentified" in resp.data
-    assert b"destination exists" in resp.data
+    assert b"destination exists" not in resp.data   # badge is gone
 
 
 def test_queue_groups_by_album(cfg, make_track, client):
@@ -279,7 +279,7 @@ def test_error_status_reapprove_passes_no_expect(cfg, make_track, client,
     conn.close()
 
 
-def test_approve_collision_surfaces_badge(cfg, make_track, client):
+def test_approve_collision_overwrites_destination(cfg, make_track, client):
     p = make_track(cfg.music_dir, "src.flac", title="T", artist="A", album="B",
                    albumartist="A", track=1)
     cand = {f: None for f in beets_adapter.CANDIDATE_FIELDS}
@@ -304,13 +304,14 @@ def test_approve_collision_surfaces_badge(cfg, make_track, client):
     conn = db.connect(cfg.db_path)
     db.init_db(conn)
     prop = db.get(conn, row.id)
-    assert prop.status == "error"
-    assert prop.error and "destination exists" in prop.error
+    assert prop.status == "done"                    # was: error
     conn.close()
-    assert dest.read_bytes() == b"EXISTING"
+    import mediafile
+    assert dest.exists() and dest.read_bytes() != b"EXISTING"
+    assert mediafile.MediaFile(str(dest)).title == "T"
 
     resp2 = client.get("/")
-    assert b"destination exists" in resp2.data
+    assert b"destination exists" not in resp2.data
 
 
 def test_skip_and_reset_roundtrip(cfg, make_track, client):
@@ -372,7 +373,7 @@ def test_identify_clears_candidates(cfg, make_track, client, monkeypatch):
     conn.close()
 
 
-def test_bulk_approve_partial_failure(cfg, make_track, client):
+def test_bulk_approve_collision_still_approves_everything(cfg, make_track, client):
     p1 = make_track(cfg.music_dir, "c1.flac", title="T1", artist="A", album="B",
                     albumartist="A", track=1)
     p2 = make_track(cfg.music_dir, "c2.flac", title="T2", artist="A", album="B",
@@ -402,16 +403,16 @@ def test_bulk_approve_partial_failure(cfg, make_track, client):
     resp = client.post("/albums/approve", data={"album_key": "A | B"},
                        follow_redirects=True)
     assert resp.status_code == 200
-    assert b"approved 2" in resp.data
+    assert b"approved 3" in resp.data               # was: approved 2
 
     conn = db.connect(cfg.db_path)
     db.init_db(conn)
     done = [r for r in db.list_all(conn) if r.status == "done"]
     err = [r for r in db.list_all(conn) if r.status == "error"]
-    assert len(done) == 2
-    assert len(err) == 1
-    assert err[0].error and "destination exists" in err[0].error
+    assert len(done) == 3 and err == []
     conn.close()
+    import mediafile
+    assert mediafile.MediaFile(str(dest)).title == "T1"   # replaced
 
 
 def test_bulk_approve_ignores_unidentified(cfg, make_track, client, monkeypatch):

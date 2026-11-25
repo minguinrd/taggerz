@@ -59,8 +59,6 @@ def _badge(proposal) -> str:
     if proposal.status == STATUS_PENDING:
         return "fingerprinting…"
     if proposal.status == STATUS_ERROR:
-        if proposal.error and proposal.error.startswith("destination exists"):
-            return "destination exists"
         return "error"
     kind = proposal.kind
     if kind == KIND_NEEDS_TAGS:
@@ -446,11 +444,8 @@ def approve(pid):
             Path(proposal.path), fields, move_only=move_only,
             expect=expect, beets_item_id=proposal.beets_item_id,
         )
-    except (beets_adapter.DestinationExists, beets_adapter.FileChanged,
-            beets_adapter.ApplyFailed) as exc:
-        if isinstance(exc, beets_adapter.DestinationExists):
-            msg = str(exc) or "destination exists"
-        elif isinstance(exc, beets_adapter.FileChanged):
+    except (beets_adapter.FileChanged, beets_adapter.ApplyFailed) as exc:
+        if isinstance(exc, beets_adapter.FileChanged):
             msg = str(exc) or "file changed"
         else:
             msg = str(exc)
@@ -559,13 +554,10 @@ def bulk_approve():
             activity.record("move" if move_only else "approve", p.path,
                             ok=True, detail=f"→ {dest}")
             approved += 1
-        except (beets_adapter.DestinationExists, beets_adapter.FileChanged,
-                beets_adapter.ApplyFailed) as exc:
+        except (beets_adapter.FileChanged, beets_adapter.ApplyFailed) as exc:
             # Expected apply failures become error rows; anything else is a
             # bug and must propagate rather than masquerade as a bad file.
-            if isinstance(exc, beets_adapter.DestinationExists):
-                msg = str(exc) or "destination exists"
-            elif isinstance(exc, beets_adapter.FileChanged):
+            if isinstance(exc, beets_adapter.FileChanged):
                 msg = str(exc) or "file changed"
             else:
                 msg = str(exc)
