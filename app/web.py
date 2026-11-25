@@ -81,12 +81,15 @@ def format_scan_time(epoch: float) -> str:
 
 
 def _step_classes(phase: str) -> dict:
-    """Stepper item classes for the job-progress section, keyed scan/fingerprint/done."""
-    if phase == "scanning":
-        return {"scan": "is-active", "fingerprint": "is-todo", "done": "is-todo"}
-    if phase == "fingerprinting":
-        return {"scan": "is-done", "fingerprint": "is-active", "done": "is-todo"}
-    return {"scan": "is-done", "fingerprint": "is-done", "done": "is-active"}
+    """Stepper item classes for the job-progress section.
+
+    Keyed scan/fingerprint/apply/done.
+    """
+    order = ("scan", "fingerprint", "apply", "done")
+    active = {"scanning": 0, "fingerprinting": 1, "applying": 2}.get(phase, 3)
+    return {key: ("is-done" if i < active else
+                  "is-active" if i == active else "is-todo")
+            for i, key in enumerate(order)}
 
 
 def _paginate_groups(group_list, page_size):
@@ -348,6 +351,8 @@ def _reopen(conn, proposal, cfg) -> None:
         return
     if proposal.candidates:
         db.set_candidates(conn, proposal.id, proposal.candidates)
+        # awaiting-review + candidates: the job's apply phase picks it up.
+        worker.start_job(cfg, "fingerprint")
     else:
         db.update_status(conn, proposal.id, STATUS_PENDING)
         worker.start_job(cfg, "fingerprint")

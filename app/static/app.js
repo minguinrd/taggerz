@@ -108,6 +108,7 @@
     move: "Moving",
     scanning: "Scanning",
     fingerprinting: "Fingerprinting",
+    applying: "Applying",
     done: "Done",
     error: "Failed"
   };
@@ -220,6 +221,8 @@
       if (data.phase === "scanning") msg = "Scan started";
       else if (data.phase === "fingerprinting") {
         msg = "Fingerprinting started, " + data.queued + " files queued";
+      } else if (data.phase === "applying") {
+        msg = "Applying changes";
       } else if (data.phase === "done") {
         msg = "Scan complete: " + data.fingerprinted + " fingerprinted, " +
               data.errors + " errors";
@@ -284,6 +287,7 @@
   }
 
   function jobCountsText(data) {
+    if (data.phase === "applying") return "";
     if (data.phase === "scanning") {
       return data.seen.toLocaleString() + " files seen · " +
              data.errors + " errors";
@@ -345,9 +349,10 @@
     }
     jobSection.hidden = false;
 
-    // stepper: scan / fingerprint / done
+    // stepper: scan / fingerprint / apply / done
     var activeIdx = data.phase === "scanning" ? 0
-                  : data.phase === "fingerprinting" ? 1 : 2;
+                  : data.phase === "fingerprinting" ? 1
+                  : data.phase === "applying" ? 2 : 3;
     for (var i = 0; i < jobSteps.length; i++) {
       var cls = i < activeIdx ? "is-done"
               : i === activeIdx ? "is-active" : "is-todo";

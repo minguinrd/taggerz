@@ -741,3 +741,51 @@ def test_queue_job_section_error_shows_message(cfg, client, monkeypatch):
 def test_format_scan_time_returns_local_hhmm():
     from app import web
     assert web.format_scan_time(_SCAN_EPOCH) == "14:05"
+
+
+def test_step_classes_applying_marks_apply_step_active():
+    from app import web
+    steps = web._step_classes("applying")
+    assert steps == {"scan": "is-done", "fingerprint": "is-done",
+                     "apply": "is-active", "done": "is-todo"}
+    assert set(web._step_classes("scanning")) == set(steps)
+    assert web._step_classes("scanning")["scan"] == "is-active"
+    assert web._step_classes("fingerprinting")["fingerprint"] == "is-active"
+    assert web._step_classes("done")["done"] == "is-active"
+
+
+def test_queue_job_section_applying_renders(cfg, client, monkeypatch):
+    monkeypatch.setattr(worker, "status", lambda: _job_status(
+        running=True, phase="applying", fingerprinted=9, queued=10, errors=0,
+        activity={"current": {"op": "move",
+                              "path": "/music/A/B/01 - X.flac",
+                              "duration": 0.9},
+                  "recent": []}))
+    html = client.get("/").data.decode()
+    assert 'data-state="running"' in html
+    assert re.search(r'<span class="job-step is-active">[^<]*Applying', html)
+    assert 'aria-valuenow="90"' in html
+    # no fake "fingerprinting" counts while applying
+    assert '<p id="job-counts" class="job-counts"></p>' in html
+    assert "01 - X.flac" in html                    # now-line shows the apply
+
+
+def test_retry_with_candidates_starts_job(cfg, make_track, client,
+                                          monkeypatch):
+    p, row = _seed_proposal(cfg, make_track, candidates=[{"title": "X"}])
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    db.update_status(conn, row.id, "error", error="boom")  # candidates kept
+    conn.close()
+    started = {"n": 0}
+    monkeypatch.setattr(worker, "start_job",
+                        lambda cfg, kind="scan": started.__setitem__(
+                            "n", started["n"] + 1) or True)
+    resp = client.post(f"/proposal/{row.id}/retry", follow_redirects=True)
+    assert resp.status_code == 200
+    assert started["n"] == 1
+    conn = db.connect(cfg.db_path)
+    db.init_db(conn)
+    prop = db.get(conn, row.id)
+    assert prop.status == "awaiting-review"   # phase 2 will pick it up
+    conn.close()
