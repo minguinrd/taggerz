@@ -11,6 +11,8 @@
   --on-primary: #ffffff;
   --accent: #d97706;
   --good: #16a34a;
+  --good-text: #15803d;
+  --accent-text: #b45309;
   --focus: #2563eb;
   --flash-error-bg: #fee2e2;
   --flash-error-fg: #7f1d1d;
@@ -48,6 +50,8 @@
     --primary: #dc2626;
     --primary-hover: #ef4444;
     --focus: #60a5fa;
+    --good-text: #4ade80;
+    --accent-text: #fbbf24;
     --flash-error-bg: #450a0a;
     --flash-error-fg: #fecaca;
     --flash-ok-bg: #052e16;
@@ -339,6 +343,78 @@ main { max-width: 1060px; margin: 0 auto; }
 #toggle-all { display: none; }
 html.js #toggle-all { display: inline-flex; }
 #search-meta { margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); }
+
+/* ---------- job progress section ---------- */
+
+.job-progress {
+  display: grid;
+  gap: var(--sp-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.job-progress[data-state="hidden"] { display: none; }
+
+/* state visibility: only one of these blocks shows at a time */
+.job-progress[data-state="running"] #job-error,
+.job-progress[data-state="running"] #job-idle,
+.job-progress[data-state="error"] .job-steps,
+.job-progress[data-state="error"] #job-bar,
+.job-progress[data-state="error"] #job-counts,
+.job-progress[data-state="error"] #job-now,
+.job-progress[data-state="error"] #job-idle,
+.job-progress[data-state="idle"] .job-steps,
+.job-progress[data-state="idle"] #job-bar,
+.job-progress[data-state="idle"] #job-counts,
+.job-progress[data-state="idle"] #job-now,
+.job-progress[data-state="idle"] #job-error {
+  display: none;
+}
+
+.job-steps { display: flex; flex-wrap: wrap; gap: var(--sp-4); font-size: 0.9rem; }
+.job-step { color: var(--muted); font-weight: 400; }
+.job-step.is-active { color: var(--accent-text); font-weight: 700; }
+.job-step.is-done { color: var(--good-text); font-weight: 500; }
+
+.job-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--chip-bg);
+  overflow: hidden;
+}
+.job-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--dur);
+}
+.job-bar.is-indeterminate .job-bar-fill {
+  width: 40%;
+  animation: job-slide 1.2s ease-in-out infinite;
+}
+@keyframes job-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+.job-counts,
+.job-eta { margin: 0; color: var(--muted); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.job-now { margin: 0; font-size: 0.85rem; overflow-wrap: anywhere; }
+#job-now-path { font-weight: 600; }
+#job-now-dur { color: var(--muted); font-weight: 400; }
+#job-error {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--flash-error-bg);
+  color: var(--flash-error-fg);
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+#job-idle { margin: 0; color: var(--muted); font-size: 0.9rem; }
 
 /* ---------- pagination ---------- */
 
@@ -842,4 +918,5 @@ dialog::backdrop { background: rgb(15 23 42 / 0.55); }
     animation-duration: 0.01ms !important;
   }
   .dock-spin { animation: none; border-top-color: transparent; }
+  .job-bar.is-indeterminate .job-bar-fill { animation: none; }
 }
