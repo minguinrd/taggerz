@@ -26,6 +26,10 @@ anything it can't decide waits in a browser queue.
 docker compose up
 ```
 
+This pulls the prebuilt image [`m809/taggerz`](https://hub.docker.com/r/m809/taggerz)
+from Docker Hub (or run `docker pull m809/taggerz:latest` yourself). To build
+from source instead, use `docker compose up --build`.
+
 Open <http://localhost:8080>. Put your music in `./music` (mounted read-write
 at `/music`). The container runs as your `UID`/`GID` (from `.env`, defaulting
 to `1000:1000`) so files it writes to the mount stay owned by you.
@@ -98,4 +102,4 @@ uv pip install --python .venv/bin/python -r requirements.txt
 ```
 
 Regenerate the test audio fixture: `tests/fixtures/make_fixtures.sh` (needs
-`ffmpeg`). Docker build: `docker build -t taggerz .`.
+`ffmpeg`). Docker build: `docker build -t m809/taggerz .`.

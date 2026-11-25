@@ -1,6 +1,7 @@
 # docker-compose.yml
 services:
   taggerz:
+    image: m809/taggerz:latest
     build: .
     ports: ["127.0.0.1:8080:8080"]
     user: "${UID:-1000}:${GID:-1000}"
