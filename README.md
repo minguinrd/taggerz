@@ -31,7 +31,7 @@ from Docker Hub (or run `docker pull m809/taggerz:latest` yourself). To build
 from source instead, use `docker compose up --build`.
 
 Open <http://localhost:8080>. Put your music in `./music` (mounted read-write
-at `/music`). The container runs as your `UID`/`GID` (from `.env`, defaulting
+at `/music`), or point `MUSIC_PATH` at your library in `.env`. The container runs as your `UID`/`GID` (from `.env`, defaulting
 to `1000:1000`) so files it writes to the mount stay owned by you.
 
 ## Flow

@@ -1,12 +1,18 @@
 # docker-compose.yml
+#
+# `docker compose up -d` pulls m809/taggerz:latest from Docker Hub.
+# `docker compose up -d --build` builds from source (needs the repo checkout).
 services:
   taggerz:
     image: m809/taggerz:latest
     build: .
-    ports: ["127.0.0.1:8080:8080"]
+    container_name: taggerz
+    restart: unless-stopped
+    ports: ["127.0.0.1:${PORT:-8080}:8080"]
+    # Run as your user so files written to the music mount stay owned by you.
     user: "${UID:-1000}:${GID:-1000}"
     volumes:
-      - ./music:/music
+      - ${MUSIC_PATH:-./music}:/music
       - taggerz-data:/data
     environment:
       ACOUSTID_APP_KEY: "${ACOUSTID_APP_KEY:-}"
